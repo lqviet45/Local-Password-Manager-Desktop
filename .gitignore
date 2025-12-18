@@ -6,6 +6,7 @@ riderModule.iml
 
 .idea
 .vs
+.vscode
 *.suo
 *.user
 *.userosscache
