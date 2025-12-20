@@ -9,6 +9,10 @@
         <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter"/>
         <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
         <converters:RegisterModeTextConverter x:Key="RegisterModeTextConverter"/>
+        <converters:ZeroToVisibilityConverter x:Key="ZeroToVisibilityConverter"/>
+        <converters:InverseZeroToVisibilityConverter x:Key="InverseZeroToVisibilityConverter"/>
+        <converters:FavoriteIconConverter x:Key="FavoriteIconConverter"/>
+        <converters:PremiumTextConverter x:Key="PremiumTextConverter"/>
         
         <!-- Global Styles -->
         <Style x:Key="PrimaryButton" TargetType="Button">

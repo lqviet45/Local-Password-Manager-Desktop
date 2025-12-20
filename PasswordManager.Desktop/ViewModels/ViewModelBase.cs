@@ -101,4 +101,12 @@ public abstract partial class ViewModelBase : ObservableObject
     {
         DialogService.ShowError(message, title);
     }
+
+    /// <summary>
+    /// Shows a warning message.
+    /// </summary>
+    protected void ShowWarning(string message, string title = "Warning")
+    {
+        DialogService.ShowWarning(message, title);
+    }
 }

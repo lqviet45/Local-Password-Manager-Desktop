@@ -67,10 +67,10 @@ public partial class App : Application
 
         // ViewModels (Transient for fresh instances)
         services.AddTransient<LoginViewModel>();
-        // services.AddTransient<MainViewModel>();
-        // services.AddTransient<VaultViewModel>();
+        services.AddTransient<VaultViewModel>();
+        services.AddTransient<SettingsViewModel>();
+        services.AddTransient<MainViewModel>();
         // services.AddTransient<AddEditItemViewModel>();
-        // services.AddTransient<SettingsViewModel>();
 
         // Views (Transient)
         services.AddTransient<LoginWindow>();
