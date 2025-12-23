@@ -75,6 +75,7 @@ public partial class LoginViewModel : ViewModelBase
 
             // Get user from database
             var user = await _dbContext.Users
+                .AsNoTracking()
                 .FirstOrDefaultAsync(u => u.Email.ToLower() == Email.ToLower());
 
             if (user == null)
@@ -117,23 +118,19 @@ public partial class LoginViewModel : ViewModelBase
             // Reset failed attempts on successful login
             if (user.FailedLoginAttempts > 0)
             {
-                user.FailedLoginAttempts = 0;
-                user.LastFailedLoginUtc = null;
-                user.LastLoginUtc = DateTime.UtcNow;
-
-                _dbContext.Users.Update(user);
+                var userToUpdate = await _dbContext.Users
+                    .FindAsync(user.Id);
+                
+                if (userToUpdate == null)
+                {
+                    throw new InvalidOperationException("User not found during failed attempts reset");
+                }
+                
+                userToUpdate.FailedLoginAttempts = 0;
+                userToUpdate.LastFailedLoginUtc = null;
+                userToUpdate.LastLoginUtc = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync();
             }
-
-            // ✅ CRITICAL FIX: Initialize with user's salt
-            Logger.LogInformation("=== INITIALIZING MASTER PASSWORD SERVICE ===");
-            Logger.LogInformation("Salt length: {Length} bytes", user.Salt.Length);
-            Logger.LogInformation("Salt (first 16 bytes hex): {SaltHex}",
-                Convert.ToHexString(user.Salt[..Math.Min(16, user.Salt.Length)]));
-
-            // Check current state before initialization
-            Logger.LogInformation("MasterPasswordService.IsInitialized BEFORE: {IsInitialized}",
-                _masterPasswordService.IsInitialized);
 
             await _masterPasswordService.InitializeAsync(MasterPassword, user.Salt);
 
@@ -141,28 +138,10 @@ public partial class LoginViewModel : ViewModelBase
             Logger.LogInformation("MasterPasswordService.IsInitialized AFTER: {IsInitialized}",
                 _masterPasswordService.IsInitialized);
 
-            // ✅ VERIFY: Try to get encryption key to confirm initialization
-            try
-            {
-                var testKey = _masterPasswordService.GetEncryptionKey();
-                Logger.LogInformation("✓ Encryption key retrieved successfully (length: {Length} bytes)",
-                    testKey.Length);
-                Logger.LogInformation("  Key (first 16 bytes hex): {KeyHex}",
-                    Convert.ToHexString(testKey[..Math.Min(16, testKey.Length)]));
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "❌ FAILED to get encryption key after initialization!");
-                throw;
-            }
-
-            Logger.LogInformation("=== MASTER PASSWORD SERVICE INITIALIZED ===");
-
             // Start user session
             _sessionService.StartSession(user);
 
             Logger.LogInformation("Login successful for user: {Email}", Email);
-            Logger.LogInformation("=== LOGIN ATTEMPT END - SUCCESS ===");
 
             // Open main window
             OpenMainWindow();
