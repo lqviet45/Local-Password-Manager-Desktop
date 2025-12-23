@@ -303,9 +303,27 @@
                                     <Border Grid.Column="0"
                                           Width="50"
                                           Height="50"
-                                          Background="#E3F2FD"
                                           CornerRadius="25"
                                           Margin="0,0,15,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#E3F2FD"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Type}" Value="CreditCard">
+                                                        <Setter Property="Background" Value="#FFF3E0"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Type}" Value="SecureNote">
+                                                        <Setter Property="Background" Value="#F3E5F5"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Type}" Value="Identity">
+                                                        <Setter Property="Background" Value="#E8F5E9"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Type}" Value="BankAccount">
+                                                        <Setter Property="Background" Value="#E0F2F1"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
                                         <TextBlock Text="{Binding TypeIcon}"
                                                  FontSize="24"
                                                  HorizontalAlignment="Center"
@@ -316,7 +334,7 @@
                                     <StackPanel Grid.Column="1" 
                                               VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}"
+                                            <TextBlock Text="{Binding PrimaryDisplay}"
                                                      FontSize="16"
                                                      FontWeight="SemiBold"
                                                      Foreground="#212121"/>
@@ -325,7 +343,7 @@
                                                      Text="{Binding IsFavorite, Converter={StaticResource FavoriteIconConverter}}"/>
                                         </StackPanel>
                                         
-                                        <TextBlock Text="{Binding Username}"
+                                        <TextBlock Text="{Binding SecondaryDisplay}"
                                                  FontSize="13"
                                                  Foreground="#757575"
                                                  Margin="0,3,0,0">
@@ -333,10 +351,10 @@
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding Username}" Value="{x:Null}">
+                                                        <DataTrigger Binding="{Binding SecondaryDisplay}" Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
                                                         </DataTrigger>
-                                                        <DataTrigger Binding="{Binding Username}" Value="">
+                                                        <DataTrigger Binding="{Binding SecondaryDisplay}" Value="">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
@@ -344,7 +362,7 @@
                                             </TextBlock.Style>
                                         </TextBlock>
                                         
-                                        <TextBlock Text="{Binding Url}"
+                                        <TextBlock Text="{Binding TertiaryDisplay}"
                                                  FontSize="12"
                                                  Foreground="#9E9E9E"
                                                  Margin="0,2,0,0">
@@ -352,10 +370,10 @@
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding Url}" Value="{x:Null}">
+                                                        <DataTrigger Binding="{Binding TertiaryDisplay}" Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
                                                         </DataTrigger>
-                                                        <DataTrigger Binding="{Binding Url}" Value="">
+                                                        <DataTrigger Binding="{Binding TertiaryDisplay}" Value="">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>

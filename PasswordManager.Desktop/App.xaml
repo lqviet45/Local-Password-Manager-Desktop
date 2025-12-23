@@ -13,6 +13,7 @@
         <converters:InverseZeroToVisibilityConverter x:Key="InverseZeroToVisibilityConverter"/>
         <converters:FavoriteIconConverter x:Key="FavoriteIconConverter"/>
         <converters:PremiumTextConverter x:Key="PremiumTextConverter"/>
+        <converters:VaultItemTypeToColorConverter x:Key="TypeToColorConverter"/>
         
         <!-- Global Styles -->
         <Style x:Key="PrimaryButton" TargetType="Button">

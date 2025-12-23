@@ -29,7 +29,7 @@ public sealed class LoginCommandHandler : PasswordManager.Shared.Core.Message.IC
     {
         var email = request.Email.Trim().ToLowerInvariant();
 
-        var user = await _userRepository.GetByEmailAsync(email, cancellationToken);
+        var user = await _userRepository.GetByEmailAsync(email, isTracked: true, cancellationToken);
         if (user == null)
         {
             _logger.LogWarning("Login failed - user not found for email {Email}", email);

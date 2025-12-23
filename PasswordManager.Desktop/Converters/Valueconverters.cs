@@ -1,6 +1,8 @@
 ﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Media;
+using PasswordManager.Domain.Enums;
 
 namespace PasswordManager.Desktop.Converters;
 
@@ -171,6 +173,36 @@ public class PremiumTextConverter : IValueConverter
             return isPremium ? "Premium ⭐" : "Free";
         }
         return "Free";
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
+/// Converts VaultItemType to background color for icon display.
+/// </summary>
+[ValueConversion(typeof(VaultItemType), typeof(Brush))]
+public class VaultItemTypeToColorConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is VaultItemType type)
+        {
+            return type switch
+            {
+                VaultItemType.Login => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E3F2FD")),
+                VaultItemType.CreditCard => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFF3E0")),
+                VaultItemType.SecureNote => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3E5F5")),
+                VaultItemType.Identity => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E8F5E9")),
+                VaultItemType.BankAccount => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E0F2F1")),
+                _ => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F5F5F5"))
+            };
+        }
+
+        return new SolidColorBrush(Colors.Gray);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

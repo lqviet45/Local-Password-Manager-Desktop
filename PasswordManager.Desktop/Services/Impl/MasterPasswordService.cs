@@ -12,6 +12,7 @@ public sealed class MasterPasswordService : IMasterPasswordService, IDisposable
     private readonly ICryptoProvider _cryptoProvider;
     private readonly ILogger<MasterPasswordService> _logger;
     private byte[]? _encryptionKey;
+    private byte[]? _masterKey;
     private byte[]? _salt;
     private bool _isInitialized;
     private readonly object _lock = new();
@@ -37,7 +38,7 @@ public sealed class MasterPasswordService : IMasterPasswordService, IDisposable
         }
     }
 
-    public async Task InitializeAsync(string masterPassword, byte[] userSalt)
+    public async Task InitializeAsync(string masterPassword, byte[] userSalt, string? encryptedMasterKey = null)
     {
         _logger.LogInformation("=== InitializeAsync CALLED ===");
         _logger.LogInformation("Master password length: {Length}", masterPassword?.Length ?? 0);
@@ -91,10 +92,26 @@ public sealed class MasterPasswordService : IMasterPasswordService, IDisposable
                 _isInitialized = true;
             }
 
+            if (!string.IsNullOrWhiteSpace(encryptedMasterKey))
+            {
+                try
+                {
+                    var encrypted = Domain.ValueObjects.EncryptedData.FromCombinedString(encryptedMasterKey);
+                    var decryptedMasterKeyBase64 = await _cryptoProvider.DecryptAsync(encrypted, key);
+                    _masterKey = Convert.FromBase64String(decryptedMasterKeyBase64);
+                    _logger.LogInformation("✓ Master key decrypted and cached");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to decrypt master key; continuing with derived key only");
+                }
+            }
+
             _logger.LogInformation("✓ MasterPasswordService initialized successfully");
             _logger.LogInformation("  - IsInitialized: {IsInitialized}", _isInitialized);
             _logger.LogInformation("  - Encryption key stored: {HasKey}", _encryptionKey != null);
             _logger.LogInformation("  - Salt stored: {HasSalt}", _salt != null);
+            _logger.LogInformation("  - Master key stored: {HasMasterKey}", _masterKey != null);
         }
         catch (Exception ex)
         {
@@ -160,6 +177,32 @@ public sealed class MasterPasswordService : IMasterPasswordService, IDisposable
         }
     }
 
+    public byte[] GetPreferredKey()
+    {
+        lock (_lock)
+        {
+            if (_masterKey != null)
+            {
+                var keyCopy = new byte[_masterKey.Length];
+                Array.Copy(_masterKey, keyCopy, _masterKey.Length);
+                return keyCopy;
+            }
+        }
+
+        return GetEncryptionKey();
+    }
+
+    public byte[]? GetMasterKeyOrDefault()
+    {
+        lock (_lock)
+        {
+            if (_masterKey == null) return null;
+            var keyCopy = new byte[_masterKey.Length];
+            Array.Copy(_masterKey, keyCopy, _masterKey.Length);
+            return keyCopy;
+        }
+    }
+
     private void ClearSensitiveDataInternal()
     {
         _logger.LogInformation("Clearing sensitive data...");
@@ -170,6 +213,13 @@ public sealed class MasterPasswordService : IMasterPasswordService, IDisposable
             Array.Clear(_encryptionKey, 0, _encryptionKey.Length);
             _encryptionKey = null;
             _logger.LogInformation("  - Encryption key cleared");
+        }
+
+        if (_masterKey != null)
+        {
+            Array.Clear(_masterKey, 0, _masterKey.Length);
+            _masterKey = null;
+            _logger.LogInformation("  - Master key cleared");
         }
 
         // Zero out salt

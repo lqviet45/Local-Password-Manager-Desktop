@@ -1,4 +1,6 @@
 ﻿using System.Collections.ObjectModel;
+using System.Linq;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,6 +10,7 @@ using PasswordManager.Desktop.Services;
 using PasswordManager.Desktop.Views;
 using PasswordManager.Domain.Enums;
 using PasswordManager.Domain.Interfaces;
+using PasswordManager.Domain.ValueObjects;
 using PasswordManager.Shared.Vault.Commands;
 using PasswordManager.Shared.Vault.Dto;
 using PasswordManager.Shared.Vault.Queries;
@@ -369,6 +372,10 @@ public partial class VaultViewModel : ViewModelBase
         NoteItemsCount = VaultItems.Count(i => i.Type == VaultItemType.SecureNote);
     }
 
+    internal byte[] GetDecryptionKey() => _masterPasswordService.GetEncryptionKey();
+
+    internal ICryptoProvider CryptoProvider => _cryptoProvider;
+
     public async Task RefreshAsync()
     {
         await LoadItemsAsync();
@@ -390,6 +397,7 @@ public partial class VaultItemViewModel : ObservableObject
     public string Name => VaultItem.Name;
     public string? Username => VaultItem.Username;
     public string? Url => VaultItem.Url;
+    public string? Notes => VaultItem.Notes;
     public bool IsFavorite => VaultItem.IsFavorite;
     public DateTime LastModifiedUtc => VaultItem.LastModifiedUtc;
 
@@ -417,6 +425,49 @@ public partial class VaultItemViewModel : ObservableObject
         _ => "Unknown"
     };
 
+    /// <summary>
+    /// Primary display text rendered for this vault item, varying by item type.
+    /// </summary>
+    public string PrimaryDisplay => Type switch
+    {
+        VaultItemType.Login => ExtractDomain(Url) ?? Name,
+        VaultItemType.CreditCard => MaskNumberWithLast4(ParsedSensitiveData.CardNumber) ?? Name,
+        VaultItemType.SecureNote => Name,
+        VaultItemType.Identity => ParsedSensitiveData.FullName ?? Name,
+        VaultItemType.BankAccount => ParsedSensitiveData.BankName ?? Name,
+        _ => Name
+    };
+
+    /// <summary>
+    /// Secondary display text rendered for this vault item, varying by item type.
+    /// </summary>
+    public string SecondaryDisplay => Type switch
+    {
+        VaultItemType.Login => Username ?? string.Empty,
+        VaultItemType.CreditCard => ParsedSensitiveData.CardholderName ?? Username ?? string.Empty,
+        VaultItemType.SecureNote => BuildNotePreview(ParsedSensitiveData.NoteContent ?? Notes) ?? string.Empty,
+        VaultItemType.Identity => ParsedSensitiveData.Email ?? Username ?? string.Empty,
+        VaultItemType.BankAccount => MaskNumberWithLast4(ParsedSensitiveData.BankAccountNumber) ?? Username ?? string.Empty,
+        _ => Username ?? string.Empty
+    };
+
+    /// <summary>
+    /// Tertiary display text rendered for this vault item, used for optional extra context.
+    /// </summary>
+    public string TertiaryDisplay => Type switch
+    {
+        VaultItemType.Login => Name ?? string.Empty,
+        VaultItemType.CreditCard => ParsedSensitiveData.ExpiryDisplay ?? ParsedSensitiveData.CardholderName ?? string.Empty,
+        VaultItemType.SecureNote => Notes ?? string.Empty,
+        VaultItemType.Identity => ParsedSensitiveData.Phone ?? string.Empty,
+        VaultItemType.BankAccount => ParsedSensitiveData.BankRoutingNumber ?? string.Empty,
+        _ => Url ?? string.Empty
+    };
+
+    private VaultItemSensitiveData _sensitiveData = VaultItemSensitiveData.Empty;
+    private bool _hasParsedSensitiveData;
+    private bool _hasAttemptedDecryption;
+
     public VaultItemViewModel(VaultItemDto vaultItem, VaultViewModel parentViewModel)
     {
         VaultItem = vaultItem ?? throw new ArgumentNullException(nameof(vaultItem));
@@ -426,11 +477,18 @@ public partial class VaultItemViewModel : ObservableObject
     public void UpdateFromVaultItem(VaultItemDto updatedItem)
     {
         VaultItem = updatedItem;
+        _hasParsedSensitiveData = false;
+        _hasAttemptedDecryption = false;
+        _sensitiveData = VaultItemSensitiveData.Empty;
         OnPropertyChanged(nameof(Name));
         OnPropertyChanged(nameof(Username));
         OnPropertyChanged(nameof(Url));
+        OnPropertyChanged(nameof(Notes));
         OnPropertyChanged(nameof(IsFavorite));
         OnPropertyChanged(nameof(LastModifiedUtc));
+        OnPropertyChanged(nameof(PrimaryDisplay));
+        OnPropertyChanged(nameof(SecondaryDisplay));
+        OnPropertyChanged(nameof(TertiaryDisplay));
     }
 
     [RelayCommand]
@@ -461,5 +519,205 @@ public partial class VaultItemViewModel : ObservableObject
     private async Task ToggleFavoriteAsync()
     {
         await _parentViewModel.ToggleFavoriteCommand.ExecuteAsync(this);
+    }
+
+    private VaultItemSensitiveData ParsedSensitiveData
+    {
+        get
+        {
+            if (_hasParsedSensitiveData)
+            {
+                return _sensitiveData;
+            }
+
+            _sensitiveData = ParseSensitiveData();
+            _hasParsedSensitiveData = true;
+            return _sensitiveData;
+        }
+    }
+
+    private VaultItemSensitiveData ParseSensitiveData()
+    {
+        var decrypted = EnsureDecryptedData();
+        if (string.IsNullOrWhiteSpace(decrypted))
+        {
+            return VaultItemSensitiveData.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(decrypted);
+            var root = document.RootElement;
+
+            var firstName = TryGetPropertyValue(root, "firstName");
+            var lastName = TryGetPropertyValue(root, "lastName");
+
+            return new VaultItemSensitiveData
+            {
+                Password = TryGetPropertyValue(root, "password") ?? decrypted,
+                CardNumber = TryGetPropertyValue(root, "cardNumber"),
+                CardholderName = TryGetPropertyValue(root, "cardholderName"),
+                NoteContent = TryGetPropertyValue(root, "content") ?? TryGetPropertyValue(root, "note"),
+                FullName = TryGetPropertyValue(root, "fullName") ?? BuildFullName(firstName, lastName),
+                Email = TryGetPropertyValue(root, "email"),
+                Phone = TryGetPropertyValue(root, "phone"),
+                BankName = TryGetPropertyValue(root, "bankName"),
+                BankAccountNumber = TryGetPropertyValue(root, "accountNumber"),
+                BankRoutingNumber = TryGetPropertyValue(root, "routingNumber"),
+                ExpiryMonth = TryGetPropertyValue(root, "expiryMonth"),
+                ExpiryYear = TryGetPropertyValue(root, "expiryYear")
+            };
+        }
+        catch (JsonException)
+        {
+            return new VaultItemSensitiveData
+            {
+                Password = decrypted,
+                NoteContent = decrypted
+            };
+        }
+    }
+
+    private string? EnsureDecryptedData()
+    {
+        if (!string.IsNullOrWhiteSpace(DecryptedPassword))
+        {
+            return DecryptedPassword;
+        }
+
+        if (_hasAttemptedDecryption)
+        {
+            return DecryptedPassword;
+        }
+
+        _hasAttemptedDecryption = true;
+
+        try
+        {
+            var encryptedData = EncryptedData.FromCombinedString(VaultItem.EncryptedData);
+            var decrypted = _parentViewModel.CryptoProvider.DecryptAsync(encryptedData, _parentViewModel.GetDecryptionKey())
+                .GetAwaiter()
+                .GetResult();
+            DecryptedPassword = decrypted;
+        }
+        catch
+        {
+            // Best-effort; display falls back to non-sensitive fields when decryption fails
+        }
+
+        return DecryptedPassword;
+    }
+
+    private static string? TryGetPropertyValue(JsonElement root, string propertyName)
+    {
+        foreach (var property in root.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (property.Value.ValueKind == JsonValueKind.String)
+                {
+                    return property.Value.GetString();
+                }
+
+                return property.Value.ToString();
+            }
+        }
+
+        return null;
+    }
+
+    private static string? MaskNumberWithLast4(string? number)
+    {
+        if (string.IsNullOrWhiteSpace(number))
+        {
+            return null;
+        }
+
+        var digits = new string(number.Where(char.IsDigit).ToArray());
+        if (digits.Length < 4)
+        {
+            return null;
+        }
+
+        var last4 = digits[^4..];
+        return $"**** {last4}";
+    }
+
+    private static string? BuildNotePreview(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return null;
+        }
+
+        const int maxLength = 60;
+        return content.Length <= maxLength
+            ? content
+            : $"{content[..maxLength]}…";
+    }
+
+    private static string? ExtractDomain(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            // Try adding scheme if missing
+            if (!Uri.TryCreate($"https://{url}", UriKind.Absolute, out uri))
+            {
+                return url;
+            }
+        }
+
+        var host = uri.Host;
+        return host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+            ? host[4..]
+            : host;
+    }
+
+    private static string? BuildFullName(string? firstName, string? lastName)
+    {
+        if (string.IsNullOrWhiteSpace(firstName) && string.IsNullOrWhiteSpace(lastName))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(firstName))
+        {
+            return lastName;
+        }
+
+        if (string.IsNullOrWhiteSpace(lastName))
+        {
+            return firstName;
+        }
+
+        return $"{firstName} {lastName}";
+    }
+
+    private sealed record VaultItemSensitiveData
+    {
+        public static VaultItemSensitiveData Empty { get; } = new();
+
+        public string? Password { get; init; }
+        public string? CardNumber { get; init; }
+        public string? CardholderName { get; init; }
+        public string? NoteContent { get; init; }
+        public string? FullName { get; init; }
+        public string? Email { get; init; }
+        public string? Phone { get; init; }
+        public string? BankName { get; init; }
+        public string? BankAccountNumber { get; init; }
+        public string? BankRoutingNumber { get; init; }
+        public string? ExpiryMonth { get; init; }
+        public string? ExpiryYear { get; init; }
+
+        public string? ExpiryDisplay =>
+            string.IsNullOrWhiteSpace(ExpiryMonth) || string.IsNullOrWhiteSpace(ExpiryYear)
+                ? null
+                : $"{ExpiryMonth}/{ExpiryYear}";
     }
 }

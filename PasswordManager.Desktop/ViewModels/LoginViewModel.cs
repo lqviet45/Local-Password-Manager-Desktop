@@ -77,7 +77,7 @@ public partial class LoginViewModel : ViewModelBase
                 throw new InvalidOperationException(result.Error?.Message ?? "Login failed");
             }
 
-            await _masterPasswordService.InitializeAsync(MasterPassword, result.Value.Salt);
+            await _masterPasswordService.InitializeAsync(MasterPassword, result.Value.Salt, result.Value.EncryptedMasterKey);
 
             // Check state after initialization
             Logger.LogInformation("MasterPasswordService.IsInitialized AFTER: {IsInitialized}",

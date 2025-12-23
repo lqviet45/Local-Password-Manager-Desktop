@@ -16,15 +16,33 @@ public sealed class UserRepository : IUserRepository
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
     }
 
-    public async Task<User?> GetByEmailAsync(string email, CancellationToken ct = default)
+    public async Task<User?> GetByEmailAsync(string email, 
+        bool isTracked = false,
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        if (isTracked)
+        {
+            return await _dbContext.Users
+                .FirstOrDefaultAsync(u => u.Email == email, ct);
+        }
+        
+        return await _dbContext.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email == email, ct);
     }
 
-    public async Task<User?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<User?> GetByIdAsync(Guid id, 
+        bool isTracked = false,
+        CancellationToken ct = default)
     {
-        return await _dbContext.Users.FindAsync([id], ct);
+        if (isTracked)
+        {
+            return await _dbContext.Users.FindAsync([id], ct);
+        }
+        return await _dbContext.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == id, ct);
     }
 
     public async Task<User> AddAsync(User user, CancellationToken ct = default)

@@ -114,9 +114,24 @@
                        VerticalContentAlignment="Center"/>
             </Border>
 
-            <!-- Username (for Login type) -->
-            <StackPanel Visibility="{Binding SelectedType, 
-                                            Converter={StaticResource BoolToVisConverter}}">
+            <!-- LOGIN FORM -->
+            <StackPanel Visibility="{Binding IsLoginType, Converter={StaticResource BoolToVisConverter}}">
+                <TextBlock Text="Website / URL *" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding Website, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
                 <TextBlock Text="Username / Email" 
                          FontSize="13" 
                          FontWeight="SemiBold"
@@ -132,183 +147,610 @@
                            FontSize="14"
                            VerticalContentAlignment="Center"/>
                 </Border>
-            </StackPanel>
 
-            <!-- Password -->
-            <StackPanel>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+                <!-- Password -->
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                    <TextBlock Grid.Column="0"
-                             Text="Password *" 
-                             FontSize="13" 
-                             FontWeight="SemiBold"
-                             Foreground="#333"
-                             Margin="0,0,0,8"/>
+                        <TextBlock Grid.Column="0"
+                                 Text="Password *" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
 
-                    <StackPanel Grid.Column="1" 
-                              Orientation="Horizontal"
-                              Margin="0,0,0,8">
-                        <Button Command="{Binding GeneratePasswordCommand}"
-                              Content="⚙️ Generate"
-                              Padding="8,4"
-                              FontSize="11"
-                              Margin="0,0,5,0"
-                              Background="#4CAF50"
-                              Foreground="White"
-                              BorderThickness="0"
-                              Cursor="Hand">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="3"
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center" 
-                                                                    VerticalAlignment="Center"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
+                        <StackPanel Grid.Column="1" 
+                                  Orientation="Horizontal"
+                                  Margin="0,0,0,8">
+                            <Button Command="{Binding GeneratePasswordCommand}"
+                                  Content="⚙️ Generate"
+                                  Padding="8,4"
+                                  FontSize="11"
+                                  Margin="0,0,5,0"
+                                  Background="#4CAF50"
+                                  Foreground="White"
+                                  BorderThickness="0"
+                                  Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            CornerRadius="3"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center" 
+                                                                        VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#45a049"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <ToggleButton IsChecked="{Binding ShowPassword}"
+                                        Content="👁️"
+                                        Padding="8,4"
+                                        FontSize="11"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Border BorderBrush="#DDD" 
+                            BorderThickness="1" 
+                            CornerRadius="4"
+                            Margin="0,0,0,10">
+                        <TextBox Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}"
+                               BorderThickness="0"
+                               Padding="12,10"
+                               FontSize="14"
+                               FontFamily="Consolas"
+                               VerticalContentAlignment="Center">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox">
+                                    <Setter Property="Visibility" Value="Visible"/>
                                     <Style.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="#45a049"/>
-                                        </Trigger>
+                                        <DataTrigger Binding="{Binding ShowPassword}" Value="False">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
-                            </Button.Style>
-                        </Button>
+                            </TextBox.Style>
+                        </TextBox>
+                    </Border>
 
-                        <ToggleButton IsChecked="{Binding ShowPassword}"
-                                    Content="👁️"
-                                    Padding="8,4"
-                                    FontSize="11"/>
+                    <!-- Password Strength -->
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        
+                        <ProgressBar Grid.Column="0" 
+                                   Value="{Binding PasswordStrengthScore}" 
+                                   Maximum="100"
+                                   Height="4"
+                                   Foreground="{Binding PasswordStrengthColor}"
+                                   Margin="0,0,10,0"/>
+                        
+                        <TextBlock Grid.Column="1"
+                                 Text="{Binding PasswordStrengthText}" 
+                                 FontSize="11"
+                                 Foreground="{Binding PasswordStrengthColor}"
+                                 VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- Check Breach -->
+                    <Button Command="{Binding CheckPasswordBreachCommand}"
+                          Content="🔍 Check if Password is Breached"
+                          Padding="10,8"
+                          FontSize="12"
+                          Margin="0,0,0,10"
+                          HorizontalAlignment="Left"
+                          Background="Transparent"
+                          BorderBrush="#1976D2"
+                          BorderThickness="1"
+                          Cursor="Hand"/>
+
+                    <!-- Breach Warning -->
+                    <Border Background="#FFEBEE"
+                            BorderBrush="#F44336"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="10"
+                            Margin="0,0,0,20"
+                            Visibility="{Binding IsPasswordBreached, Converter={StaticResource BoolToVisConverter}}">
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold"
+                                     Foreground="#D32F2F"
+                                     FontSize="12">
+                                <Run Text="⚠️ Breached Password"/>
+                            </TextBlock>
+                            <TextBlock Foreground="#D32F2F"
+                                     FontSize="11"
+                                     TextWrapping="Wrap"
+                                     Margin="0,3,0,0">
+                                <Run Text="Found in"/>
+                                <Run Text="{Binding BreachCount, StringFormat='{}{0:N0}'}"/>
+                                <Run Text="data breaches. Use a different password!"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- CREDIT CARD FORM -->
+            <StackPanel Visibility="{Binding IsCreditCardType, Converter={StaticResource BoolToVisConverter}}">
+                <TextBlock Text="Cardholder Name *" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding CardholderName, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Card Number *" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding CardNumber, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"
+                           MaxLength="19"/>
+                </Border>
+
+                <Grid Margin="0,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="100"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                        <TextBlock Text="Expiry Month" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <ComboBox SelectedItem="{Binding ExpiryMonth, UpdateSourceTrigger=PropertyChanged}">
+                            <ComboBoxItem>01</ComboBoxItem>
+                            <ComboBoxItem>02</ComboBoxItem>
+                            <ComboBoxItem>03</ComboBoxItem>
+                            <ComboBoxItem>04</ComboBoxItem>
+                            <ComboBoxItem>05</ComboBoxItem>
+                            <ComboBoxItem>06</ComboBoxItem>
+                            <ComboBoxItem>07</ComboBoxItem>
+                            <ComboBoxItem>08</ComboBoxItem>
+                            <ComboBoxItem>09</ComboBoxItem>
+                            <ComboBoxItem>10</ComboBoxItem>
+                            <ComboBoxItem>11</ComboBoxItem>
+                            <ComboBoxItem>12</ComboBoxItem>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                        <TextBlock Text="Expiry Year" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <ComboBox SelectedItem="{Binding ExpiryYear, UpdateSourceTrigger=PropertyChanged}">
+                            <ComboBoxItem>2024</ComboBoxItem>
+                            <ComboBoxItem>2025</ComboBoxItem>
+                            <ComboBoxItem>2026</ComboBoxItem>
+                            <ComboBoxItem>2027</ComboBoxItem>
+                            <ComboBoxItem>2028</ComboBoxItem>
+                            <ComboBoxItem>2029</ComboBoxItem>
+                            <ComboBoxItem>2030</ComboBoxItem>
+                            <ComboBoxItem>2031</ComboBoxItem>
+                            <ComboBoxItem>2032</ComboBoxItem>
+                            <ComboBoxItem>2033</ComboBoxItem>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="CVV" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <TextBox Text="{Binding CVV, UpdateSourceTrigger=PropertyChanged}"
+                               BorderThickness="1"
+                               Padding="8,6"
+                               FontSize="14"
+                               MaxLength="4"/>
                     </StackPanel>
                 </Grid>
 
+                <TextBlock Text="Billing Address" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
                 <Border BorderBrush="#DDD" 
                         BorderThickness="1" 
                         CornerRadius="4"
                         Margin="0,0,0,10">
-                    <TextBox Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}"
+                    <TextBox Text="{Binding BillingAddress, UpdateSourceTrigger=PropertyChanged}"
                            BorderThickness="0"
                            Padding="12,10"
                            FontSize="14"
-                           FontFamily="Consolas"
-                           VerticalContentAlignment="Center">
-                        <TextBox.Style>
-                            <Style TargetType="TextBox">
-                                <Setter Property="Visibility" Value="Visible"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ShowPassword}" Value="False">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBox.Style>
-                    </TextBox>
+                           TextWrapping="Wrap"
+                           AcceptsReturn="True"
+                           MinHeight="60"
+                           VerticalScrollBarVisibility="Auto"/>
                 </Border>
 
-                <!-- Password Strength -->
-                <Grid Margin="0,0,0,10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    
-                    <ProgressBar Grid.Column="0" 
-                               Value="{Binding PasswordStrengthScore}" 
-                               Maximum="100"
-                               Height="4"
-                               Foreground="{Binding PasswordStrengthColor}"
-                               Margin="0,0,10,0"/>
-                    
-                    <TextBlock Grid.Column="1"
-                             Text="{Binding PasswordStrengthText}" 
-                             FontSize="11"
-                             Foreground="{Binding PasswordStrengthColor}"
-                             VerticalAlignment="Center"/>
-                </Grid>
-
-                <!-- Check Breach -->
-                <Button Command="{Binding CheckPasswordBreachCommand}"
-                      Content="🔍 Check if Password is Breached"
-                      Padding="10,8"
-                      FontSize="12"
-                      Margin="0,0,0,10"
-                      HorizontalAlignment="Left"
-                      Background="Transparent"
-                      BorderBrush="#1976D2"
-                      BorderThickness="1"
-                      Cursor="Hand"/>
-
-                <!-- Breach Warning -->
-                <Border Background="#FFEBEE"
-                        BorderBrush="#F44336"
-                        BorderThickness="1"
+                <TextBlock Text="ZIP / Postal Code" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
                         CornerRadius="4"
-                        Padding="10"
-                        Margin="0,0,0,20"
-                        Visibility="{Binding IsPasswordBreached, Converter={StaticResource BoolToVisConverter}}">
-                    <StackPanel>
-                        <TextBlock FontWeight="SemiBold"
-                                 Foreground="#D32F2F"
-                                 FontSize="12">
-                            <Run Text="⚠️ Breached Password"/>
-                        </TextBlock>
-                        <TextBlock Foreground="#D32F2F"
-                                 FontSize="11"
-                                 TextWrapping="Wrap"
-                                 Margin="0,3,0,0">
-                            <Run Text="Found in"/>
-                            <Run Text="{Binding BreachCount, StringFormat='{}{0:N0}'}"/>
-                            <Run Text="data breaches. Use a different password!"/>
-                        </TextBlock>
-                    </StackPanel>
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding ZipCode, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
                 </Border>
             </StackPanel>
 
-            <!-- URL -->
-            <TextBlock Text="Website URL" 
-                     FontSize="13" 
-                     FontWeight="SemiBold"
-                     Foreground="#333"
-                     Margin="0,0,0,8"/>
-            <Border BorderBrush="#DDD" 
-                    BorderThickness="1" 
-                    CornerRadius="4"
-                    Margin="0,0,0,20">
-                <TextBox Text="{Binding Url, UpdateSourceTrigger=PropertyChanged}"
-                       BorderThickness="0"
-                       Padding="12,10"
-                       FontSize="14"
-                       VerticalContentAlignment="Center"/>
-            </Border>
+            <!-- SECURE NOTE FORM -->
+            <StackPanel Visibility="{Binding IsSecureNoteType, Converter={StaticResource BoolToVisConverter}}">
+                <TextBlock Text="Note Content *" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding NoteContent, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           TextWrapping="Wrap"
+                           AcceptsReturn="True"
+                           MinHeight="200"
+                           VerticalScrollBarVisibility="Auto"/>
+                </Border>
+            </StackPanel>
 
-            <!-- Notes -->
-            <TextBlock Text="Notes" 
-                     FontSize="13" 
-                     FontWeight="SemiBold"
-                     Foreground="#333"
-                     Margin="0,0,0,8"/>
-            <Border BorderBrush="#DDD" 
-                    BorderThickness="1" 
-                    CornerRadius="4"
-                    Margin="0,0,0,20">
-                <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}"
-                       BorderThickness="0"
-                       Padding="12,10"
-                       FontSize="14"
-                       TextWrapping="Wrap"
-                       AcceptsReturn="True"
-                       MinHeight="80"
-                       VerticalScrollBarVisibility="Auto"/>
-            </Border>
+            <!-- IDENTITY FORM -->
+            <StackPanel Visibility="{Binding IsIdentityType, Converter={StaticResource BoolToVisConverter}}">
+                <Grid Margin="0,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                        <TextBlock Text="First Name" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <Border BorderBrush="#DDD" 
+                                BorderThickness="1" 
+                                CornerRadius="4">
+                            <TextBox Text="{Binding FirstName, UpdateSourceTrigger=PropertyChanged}"
+                                   BorderThickness="0"
+                                   Padding="12,10"
+                                   FontSize="14"
+                                   VerticalContentAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Last Name" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <Border BorderBrush="#DDD" 
+                                BorderThickness="1" 
+                                CornerRadius="4">
+                            <TextBox Text="{Binding LastName, UpdateSourceTrigger=PropertyChanged}"
+                                   BorderThickness="0"
+                                   Padding="12,10"
+                                   FontSize="14"
+                                   VerticalContentAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Middle Name" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding MiddleName, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Date of Birth" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding DateOfBirth, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Email" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding IdentityEmail, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Phone" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Address" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,10">
+                    <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           TextWrapping="Wrap"
+                           AcceptsReturn="True"
+                           MinHeight="60"
+                           VerticalScrollBarVisibility="Auto"/>
+                </Border>
+
+                <Grid Margin="0,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                        <TextBlock Text="City" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <Border BorderBrush="#DDD" 
+                                BorderThickness="1" 
+                                CornerRadius="4">
+                            <TextBox Text="{Binding City, UpdateSourceTrigger=PropertyChanged}"
+                                   BorderThickness="0"
+                                   Padding="12,10"
+                                   FontSize="14"
+                                   VerticalContentAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="State" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <Border BorderBrush="#DDD" 
+                                BorderThickness="1" 
+                                CornerRadius="4">
+                            <TextBox Text="{Binding State, UpdateSourceTrigger=PropertyChanged}"
+                                   BorderThickness="0"
+                                   Padding="12,10"
+                                   FontSize="14"
+                                   VerticalContentAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Country" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding Country, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <Grid Margin="0,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                        <TextBlock Text="Passport Number" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <Border BorderBrush="#DDD" 
+                                BorderThickness="1" 
+                                CornerRadius="4">
+                            <TextBox Text="{Binding PassportNumber, UpdateSourceTrigger=PropertyChanged}"
+                                   BorderThickness="0"
+                                   Padding="12,10"
+                                   FontSize="14"
+                                   VerticalContentAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="License Number" 
+                                 FontSize="13" 
+                                 FontWeight="SemiBold"
+                                 Foreground="#333"
+                                 Margin="0,0,0,8"/>
+                        <Border BorderBrush="#DDD" 
+                                BorderThickness="1" 
+                                CornerRadius="4">
+                            <TextBox Text="{Binding LicenseNumber, UpdateSourceTrigger=PropertyChanged}"
+                                   BorderThickness="0"
+                                   Padding="12,10"
+                                   FontSize="14"
+                                   VerticalContentAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <!-- BANK ACCOUNT FORM -->
+            <StackPanel Visibility="{Binding IsBankAccountType, Converter={StaticResource BoolToVisConverter}}">
+                <TextBlock Text="Bank Name *" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding BankName, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Account Holder Name" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding AccountHolderName, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Account Number *" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding AccountNumber, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="Routing Number" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding RoutingNumber, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+
+                <TextBlock Text="IBAN" 
+                         FontSize="13" 
+                         FontWeight="SemiBold"
+                         Foreground="#333"
+                         Margin="0,0,0,8"/>
+                <Border BorderBrush="#DDD" 
+                        BorderThickness="1" 
+                        CornerRadius="4"
+                        Margin="0,0,0,20">
+                    <TextBox Text="{Binding IBAN, UpdateSourceTrigger=PropertyChanged}"
+                           BorderThickness="0"
+                           Padding="12,10"
+                           FontSize="14"
+                           VerticalContentAlignment="Center"/>
+                </Border>
+            </StackPanel>
 
             <!-- Tags -->
             <TextBlock Text="Tags (comma-separated)" 
