@@ -83,16 +83,6 @@ public partial class LoginViewModel : ViewModelBase
                 throw new InvalidOperationException("Invalid email or master password");
             }
 
-            // ✅ DEBUG: Log salt information
-            Logger.LogInformation("User found in database:");
-            Logger.LogInformation("  - User ID: {UserId}", user.Id);
-            Logger.LogInformation("  - Email: {Email}", user.Email);
-            Logger.LogInformation("  - Salt length: {SaltLength} bytes", user.Salt?.Length ?? 0);
-            Logger.LogInformation("  - Salt (first 8 bytes): {SaltPrefix}",
-                user.Salt != null && user.Salt.Length >= 8
-                    ? Convert.ToHexString(user.Salt[..8])
-                    : "NULL or TOO SHORT");
-
             // Check if account is locked
             if (user.IsLocked)
             {
