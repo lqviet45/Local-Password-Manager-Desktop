@@ -72,7 +72,7 @@ public sealed class ClipboardService : IClipboardService
 
         try
         {
-            Clipboard.SetText(username);
+            System.Windows.Clipboard.SetText(username);
             _logger.LogInformation("Copied username to clipboard (no auto-clear)");
         }
         catch (Exception ex)
@@ -101,12 +101,12 @@ public sealed class ClipboardService : IClipboardService
             _clearTimer.Stop();
 
             // Only clear if we were the ones who put the data there
-            if (_lastCopiedValue != null && Clipboard.ContainsText())
+            if (_lastCopiedValue != null && System.Windows.Clipboard.ContainsText())
             {
-                var currentClipboard = Clipboard.GetText();
+                var currentClipboard = System.Windows.Clipboard.GetText();
                 if (currentClipboard == _lastCopiedValue)
                 {
-                    Clipboard.Clear();
+                    System.Windows.Clipboard.Clear();
                     _logger.LogInformation("Clipboard cleared manually");
                 }
                 else
@@ -173,7 +173,7 @@ public sealed class ClipboardService : IClipboardService
             _clearTimer.Stop();
 
             // Copy to clipboard
-            Clipboard.SetText(text);
+            System.Windows.Clipboard.SetText(text);
             _lastCopiedValue = text;
 
             // Start auto-clear timer
@@ -222,12 +222,12 @@ public sealed class ClipboardService : IClipboardService
         // Clear clipboard on disposal if we put data there
         try
         {
-            if (_lastCopiedValue != null && Clipboard.ContainsText())
+            if (_lastCopiedValue != null && System.Windows.Clipboard.ContainsText())
             {
-                var currentClipboard = Clipboard.GetText();
+                var currentClipboard = System.Windows.Clipboard.GetText();
                 if (currentClipboard == _lastCopiedValue)
                 {
-                    Clipboard.Clear();
+                    System.Windows.Clipboard.Clear();
                     _logger.LogInformation("Clipboard cleared on disposal");
                 }
             }

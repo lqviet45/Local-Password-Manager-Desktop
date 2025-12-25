@@ -41,7 +41,7 @@ internal class InputDialog : Window
         var buttonPanel = new System.Windows.Controls.StackPanel
         {
             Orientation = System.Windows.Controls.Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right
         };
 
         var okButton = new System.Windows.Controls.Button

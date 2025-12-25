@@ -69,8 +69,8 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to load vault items");
-                MessageBox.Show($"Failed to load vault items: {ex.Message}", 
-                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Windows.MessageBox.Show($"Failed to load vault items: {ex.Message}", 
+                    "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
         else

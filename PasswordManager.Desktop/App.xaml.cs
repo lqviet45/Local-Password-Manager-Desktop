@@ -1,16 +1,12 @@
-using System.IO;
 using System.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using PasswordManager.Desktop.Extensions;
 using PasswordManager.Desktop.Services;
-using PasswordManager.Desktop.Services.Impl;
-using PasswordManager.Desktop.ViewModels;
-using PasswordManager.Desktop.Views;
 using InfrastructureDI = PasswordManager.Infrastructure.DependencyInjection;
 using ApplicationDI = PasswordManager.Application.DependencyInjection;
-using Serilog;
 
 namespace PasswordManager.Desktop;
 
@@ -29,28 +25,10 @@ public partial class App : System.Windows.Application
     public App()
     {
         _host = Host.CreateDefaultBuilder()
-            .ConfigureAppConfiguration((context, config) =>
-            {
-                config.SetBasePath(Directory.GetCurrentDirectory());
-                config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-            })
+            .ConfigureDesktopHost()
             .ConfigureServices((context, services) =>
             {
                 ConfigureServices(context.Configuration, services);
-            })
-            .UseSerilog((context, loggerConfig) =>
-            {
-                loggerConfig
-                    .MinimumLevel.Debug()
-                    .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
-                    .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
-                    .Enrich.FromLogContext()
-                    .WriteTo.Console()
-                    .WriteTo.File(
-                        path: "logs/app.log",
-                        rollingInterval: RollingInterval.Day,
-                        retainedFileCountLimit: 7,
-                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
             })
             .Build();
     }
@@ -65,26 +43,16 @@ public partial class App : System.Windows.Application
         InfrastructureDI.AddInfrastructureForDesktop(services, "temporary_password_will_be_replaced");
 
         // Application Services
-        services.AddSingleton<IMasterPasswordService, MasterPasswordService>();
-        services.AddSingleton<ISessionService, SessionService>();
-        services.AddSingleton<IDialogService, DialogService>();
+        services.AddApplicationServices();
         
         // Desktop-specific services (System Tray, Hotkeys, Clipboard)
-        services.AddSingleton<ISystemTrayService, SystemTrayService>();
-        services.AddSingleton<IGlobalHotKeyService, GlobalHotKeyService>();
-        services.AddSingleton<IClipboardService, ClipboardService>(); // Enhanced clipboard with auto-clear
-        
-        services.AddSingleton<IWindowFactory, WindowFactory>();
+        services.AddDesktopServices();
 
-        // ViewModels - Transient (new instance each time)
-        services.AddTransient<LoginViewModel>();
-        services.AddTransient<AddEditItemViewModel>();
-        services.AddSingleton<VaultViewModel>();
-        services.AddSingleton<SettingsViewModel>();
-        services.AddSingleton<MainViewModel>();
+        // ViewModels
+        services.AddViewModels();
 
-        // Views - Transient
-        services.AddTransient<LoginWindow>();
+        // Views
+        services.AddViews();
         
         // Add Logging
         services.AddLogging();
@@ -110,7 +78,7 @@ public partial class App : System.Windows.Application
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to initialize database");
-            MessageBox.Show($"Failed to initialize database: {ex.Message}", "Error", 
+            System.Windows.MessageBox.Show($"Failed to initialize database: {ex.Message}", "Error", 
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
             return;
@@ -140,7 +108,7 @@ public partial class App : System.Windows.Application
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to show login window");
-            MessageBox.Show($"Failed to show login window: {ex.Message}", "Error",
+            System.Windows.MessageBox.Show($"Failed to show login window: {ex.Message}", "Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
         }
@@ -192,40 +160,7 @@ public partial class App : System.Windows.Application
             _hotKeyService.Initialize(helper.Handle);
 
             // Register default hotkeys
-            // Ctrl+Shift+L - Show/Hide Password Manager
-            _hotKeyService.RegisterHotKey(
-                "toggle-window",
-                HotKeyModifiers.Control | HotKeyModifiers.Shift,
-                0x4C, // VK_L
-                () =>
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (mainWindow.IsVisible && mainWindow.WindowState != WindowState.Minimized)
-                        {
-                            _systemTrayService.MinimizeToTray();
-                        }
-                        else
-                        {
-                            _systemTrayService.RestoreFromTray();
-                        }
-                    });
-                },
-                "Toggle Password Manager Window (Ctrl+Shift+L)"
-            );
-
-            // Ctrl+Shift+C - Copy password (will be implemented in VaultViewModel)
-            _hotKeyService.RegisterHotKey(
-                "copy-password",
-                HotKeyModifiers.Control | HotKeyModifiers.Shift,
-                0x43, // VK_C
-                () =>
-                {
-                    logger.LogDebug("Copy password hotkey triggered");
-                    // TODO: Implement copy selected password from vault
-                },
-                "Copy Selected Password (Ctrl+Shift+C)"
-            );
+            RegisterDefaultHotKeys(mainWindow, logger);
 
             logger.LogInformation("Desktop features (System Tray + Hotkeys) initialized successfully");
         }
@@ -233,6 +168,50 @@ public partial class App : System.Windows.Application
         {
             logger.LogError(ex, "Failed to initialize desktop features");
         }
+    }
+
+    /// <summary>
+    /// Registers default global hotkeys for the application.
+    /// </summary>
+    private void RegisterDefaultHotKeys(Window mainWindow, ILogger logger)
+    {
+        if (_hotKeyService == null || _systemTrayService == null)
+            return;
+
+        // Ctrl+Shift+L - Show/Hide Password Manager
+        _hotKeyService.RegisterHotKey(
+            "toggle-window",
+            HotKeyModifiers.Control | HotKeyModifiers.Shift,
+            0x4C, // VK_L
+            () =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (mainWindow.IsVisible && mainWindow.WindowState != WindowState.Minimized)
+                    {
+                        _systemTrayService.MinimizeToTray();
+                    }
+                    else
+                    {
+                        _systemTrayService.RestoreFromTray();
+                    }
+                });
+            },
+            "Toggle Password Manager Window (Ctrl+Shift+L)"
+        );
+
+        // Ctrl+Shift+C - Copy password (will be implemented in VaultViewModel)
+        _hotKeyService.RegisterHotKey(
+            "copy-password",
+            HotKeyModifiers.Control | HotKeyModifiers.Shift,
+            0x43, // VK_C
+            () =>
+            {
+                logger.LogDebug("Copy password hotkey triggered");
+                // TODO: Implement copy selected password from vault
+            },
+            "Copy Selected Password (Ctrl+Shift+C)"
+        );
     }
 
     public static IServiceProvider ServiceProvider => ((App)Current)._host.Services;

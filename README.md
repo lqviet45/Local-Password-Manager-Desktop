@@ -251,6 +251,19 @@ public async Task<IActionResult> PushItems([FromBody] List<VaultItemDto> items)
 - [x] Console logging
 - [x] Log rotation (7-day retention)
 
+#### Desktop Integration Features ✅
+- [x] System Tray icon with notifications
+- [x] Global hotkeys (Ctrl+Shift+L to toggle window)
+- [x] Minimize to tray functionality
+- [x] Context menu in system tray
+- [x] Auto-clear clipboard (30s default)
+
+#### Code Organization ✅
+- [x] Extension methods for service registration (`DesktopServiceExtensions`)
+- [x] Clean separation of concerns
+- [x] Dependency Injection with Microsoft.Extensions.DependencyInjection
+- [x] Host configuration via extensions
+
 ---
 
 ## 🎨 UI/UX Improvements Needed
@@ -568,11 +581,19 @@ partial void OnSelectedTypeChanged(VaultItemType value)
 .NET 9 SDK
 Visual Studio 2022 (or JetBrains Rider)
 SQLite with SQLCipher support
+Windows 10/11 (for WPF - required for Windows Forms integration)
 
-# Recommended
-Git for version control
-Windows 10/11 (for WPF)
+# NuGet Packages (automatically restored)
+- System.Drawing.Common (9.0.0)
+- System.Windows.Forms (via UseWindowsForms)
+- Serilog (logging)
+- CommunityToolkit.Mvvm (MVVM framework)
+- MediatR (CQRS pattern)
 ```
+
+**Note**: The project uses both WPF and Windows Forms:
+- WPF for main UI
+- Windows Forms for System Tray (`NotifyIcon`) and context menus
 
 ### Installation
 
@@ -721,19 +742,26 @@ LocalPasswordManager/
 │           └── VaultItemRequest.cs      # Create/update input
 │
 ├── 📂 PasswordManager.Desktop/          ✅ WPF application
-│   ├── App.xaml.cs                      # DI container + startup
+│   ├── App.xaml.cs                      # DI container + startup (refactored)
+│   ├── Extensions/
+│   │   └── DesktopServiceExtensions.cs  # ⭐ Extension methods for DI registration
 │   ├── Services/
 │   │   ├── Impl/
 │   │   │   ├── MasterPasswordService.cs # Master password manager
 │   │   │   ├── SessionService.cs        # User session tracking
 │   │   │   ├── DialogService.cs         # MessageBox wrapper
 │   │   │   ├── ClipboardService.cs      # Auto-clear clipboard
-│   │   │   └── WindowFactory.cs         # Window creation with DI
+│   │   │   ├── WindowFactory.cs         # Window creation with DI
+│   │   │   ├── SystemTrayService.cs     # System tray icon & notifications
+│   │   │   ├── GlobalHotKeyService.cs   # Global keyboard shortcuts
+│   │   │   └── InputDialog.cs           # Input dialog window
 │   │   ├── IMasterPasswordService.cs
 │   │   ├── ISessionService.cs
 │   │   ├── IDialogService.cs
 │   │   ├── IClipboardService.cs
-│   │   └── IWindowFactory.cs
+│   │   ├── IWindowFactory.cs
+│   │   ├── ISystemTrayService.cs        # System tray interface
+│   │   └── IGlobalHotKeyService.cs      # Hotkey service interface
 │   ├── ViewModels/
 │   │   ├── ViewModelBase.cs             # Base class with helpers
 │   │   ├── LoginViewModel.cs            # Login/Register logic
@@ -1196,6 +1224,18 @@ dotnet add package SQLitePCLRaw.bundle_e_sqlcipher
 
 **Solution**: ✅ FIXED - Monitor `ShouldCloseWindow` property
 
+### Issue 4: Ambiguous Type References (WPF + Windows Forms)
+**Symptom**: Compilation errors like `'MessageBox' is an ambiguous reference`
+
+**Root Cause**: Both WPF and Windows Forms have similar type names
+
+**Solution**: ✅ FIXED - All ambiguous references now use fully qualified names:
+- `System.Windows.MessageBox` (WPF)
+- `System.Windows.Clipboard` (WPF)
+- `System.Windows.Application` (WPF)
+- `System.Windows.Media.Color` (WPF)
+- `System.Windows.Forms.ContextMenuStrip` (Windows Forms for system tray)
+
 ---
 
 ## 🤝 Contributing
@@ -1242,6 +1282,61 @@ This project is for personal/educational use only.
 
 ---
 
+## 🔧 Code Architecture Improvements
+
+### Extension Methods Pattern
+
+The project now uses extension methods for better code organization and readability:
+
+```csharp
+// DesktopServiceExtensions.cs
+public static class DesktopServiceExtensions
+{
+    // Register all desktop services
+    public static IServiceCollection AddDesktopServices(this IServiceCollection services)
+    
+    // Register application services
+    public static IServiceCollection AddApplicationServices(this IServiceCollection services)
+    
+    // Register ViewModels
+    public static IServiceCollection AddViewModels(this IServiceCollection services)
+    
+    // Register Views
+    public static IServiceCollection AddViews(this IServiceCollection services)
+    
+    // Configure host with Serilog and appsettings
+    public static IHostBuilder ConfigureDesktopHost(this IHostBuilder hostBuilder)
+}
+```
+
+**Benefits**:
+- Cleaner `App.xaml.cs` - reduced from ~250 lines to ~230 lines
+- Better separation of concerns
+- Easier to test and maintain
+- Follows .NET dependency injection best practices
+
+### Service Registration Flow
+
+```csharp
+// App.xaml.cs - Clean and readable
+private void ConfigureServices(IConfiguration configuration, IServiceCollection services)
+{
+    services.AddSingleton(configuration);
+    
+    ApplicationDI.AddApplication(services);
+    InfrastructureDI.AddInfrastructureForDesktop(services, "temporary_password");
+    
+    services.AddApplicationServices();    // Extension method
+    services.AddDesktopServices();         // Extension method
+    services.AddViewModels();              // Extension method
+    services.AddViews();                   // Extension method
+    services.AddLogging();
+}
+```
+
+---
+
 **Last Updated**: December 2024
-**Version**: 1.0.0-desktop
+**Version**: 1.0.1-desktop
 **Status**: Production-ready (Desktop) | API TODO | Web Client TODO
+**Recent Changes**: Refactored service registration using extension methods, fixed ambiguous type references, added system tray and hotkey support

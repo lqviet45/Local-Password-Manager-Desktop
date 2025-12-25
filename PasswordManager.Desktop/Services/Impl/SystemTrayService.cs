@@ -1,22 +1,20 @@
-﻿using System.Drawing;
-using System.Windows;
-using System.Windows.Forms;
+﻿using System.Windows;
+using System.Windows.Controls;
+using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.Logging;
 using PasswordManager.Desktop.Services;
-using Application = System.Windows.Application;
-using ContextMenu = System.Windows.Forms.ContextMenu;
-using MenuItem = System.Windows.Forms.MenuItem;
+using WinApplication = System.Windows.Application;
 
 namespace PasswordManager.Desktop.Services.Impl;
 
 /// <summary>
-/// Production implementation of system tray service.
-/// Manages system tray icon, notifications, and context menu.
+/// Production implementation of system tray service using Hardcodet.NotifyIcon.Wpf.
+/// Much better than Windows Forms NotifyIcon for WPF applications.
 /// </summary>
 public sealed class SystemTrayService : ISystemTrayService
 {
     private readonly ILogger<SystemTrayService> _logger;
-    private readonly NotifyIcon _notifyIcon;
+    private readonly TaskbarIcon _taskbarIcon;
     private bool _disposed;
 
     private const string AppName = "Password Manager";
@@ -26,35 +24,37 @@ public sealed class SystemTrayService : ISystemTrayService
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        _notifyIcon = new NotifyIcon
+        // Create TaskbarIcon
+        _taskbarIcon = new TaskbarIcon
         {
-            Icon = LoadApplicationIcon(),
-            Visible = false,
-            Text = DefaultTooltip,
-            ContextMenu = CreateContextMenu()
+            ToolTipText = DefaultTooltip,
+            IconSource = LoadIconSource(),
+            ContextMenu = CreateContextMenu(),
+            Visibility = Visibility.Collapsed // Hidden by default
         };
 
-        _notifyIcon.DoubleClick += OnTrayIconDoubleClick;
-        _notifyIcon.BalloonTipClicked += OnNotificationClicked;
+        // Subscribe to events
+        _taskbarIcon.TrayLeftMouseUp += OnTrayLeftMouseUp;
+        _taskbarIcon.TrayMouseDoubleClick += OnTrayDoubleClick;
 
-        _logger.LogInformation("System tray service initialized");
+        _logger.LogInformation("System tray service initialized with Hardcodet.NotifyIcon.Wpf");
     }
 
     #region ISystemTrayService Implementation
 
-    public bool IsVisible => _notifyIcon.Visible;
+    public bool IsVisible => _taskbarIcon.Visibility == Visibility.Visible;
 
     public void Show()
     {
         ThrowIfDisposed();
-        _notifyIcon.Visible = true;
+        _taskbarIcon.Visibility = Visibility.Visible;
         _logger.LogDebug("System tray icon shown");
     }
 
     public void Hide()
     {
         ThrowIfDisposed();
-        _notifyIcon.Visible = false;
+        _taskbarIcon.Visibility = Visibility.Collapsed;
         _logger.LogDebug("System tray icon hidden");
     }
 
@@ -62,7 +62,7 @@ public sealed class SystemTrayService : ISystemTrayService
     {
         ThrowIfDisposed();
         
-        var mainWindow = Application.Current.MainWindow;
+        var mainWindow = WinApplication.Current.MainWindow;
         if (mainWindow != null)
         {
             mainWindow.Hide();
@@ -84,7 +84,7 @@ public sealed class SystemTrayService : ISystemTrayService
     {
         ThrowIfDisposed();
         
-        var mainWindow = Application.Current.MainWindow;
+        var mainWindow = WinApplication.Current.MainWindow;
         if (mainWindow != null)
         {
             mainWindow.Show();
@@ -104,10 +104,9 @@ public sealed class SystemTrayService : ISystemTrayService
     {
         ThrowIfDisposed();
 
-        _notifyIcon.BalloonTipTitle = title;
-        _notifyIcon.BalloonTipText = message;
-        _notifyIcon.BalloonTipIcon = ConvertNotificationIcon(icon);
-        _notifyIcon.ShowBalloonTip(timeoutMs);
+        var balloonIcon = ConvertNotificationIcon(icon);
+        
+        _taskbarIcon.ShowBalloonTip(title, message, balloonIcon);
 
         _logger.LogDebug("Notification shown: {Title} - {Message}", title, message);
     }
@@ -116,37 +115,37 @@ public sealed class SystemTrayService : ISystemTrayService
     {
         ThrowIfDisposed();
         
-        // Tooltip max length is 63 characters
-        _notifyIcon.Text = text.Length > 63 ? text.Substring(0, 60) + "..." : text;
+        // Hardcodet supports longer tooltips than Windows Forms
+        _taskbarIcon.ToolTipText = text;
     }
 
     #endregion
 
     #region Event Handlers
 
-    private void OnTrayIconDoubleClick(object? sender, EventArgs e)
+    private void OnTrayLeftMouseUp(object sender, RoutedEventArgs e)
+    {
+        _logger.LogDebug("Tray icon left-clicked");
+        // Single click - could show a popup menu or do nothing
+    }
+
+    private void OnTrayDoubleClick(object sender, RoutedEventArgs e)
     {
         _logger.LogDebug("Tray icon double-clicked");
         RestoreFromTray();
     }
 
-    private void OnNotificationClicked(object? sender, EventArgs e)
-    {
-        _logger.LogDebug("Notification clicked");
-        RestoreFromTray();
-    }
-
-    private void OnOpenClicked(object? sender, EventArgs e)
+    private void OnOpenClicked(object sender, RoutedEventArgs e)
     {
         _logger.LogDebug("Open menu item clicked");
         RestoreFromTray();
     }
 
-    private void OnLockVaultClicked(object? sender, EventArgs e)
+    private void OnLockVaultClicked(object sender, RoutedEventArgs e)
     {
         _logger.LogInformation("Lock vault requested from tray menu");
         
-        Application.Current.Dispatcher.Invoke(() =>
+        WinApplication.Current.Dispatcher.Invoke(() =>
         {
             // TODO: Integrate with your existing logout logic via MediatR
             // Send LogoutUserCommand
@@ -160,20 +159,46 @@ public sealed class SystemTrayService : ISystemTrayService
         );
     }
 
-    private void OnExitClicked(object? sender, EventArgs e)
+    private void OnExitClicked(object sender, RoutedEventArgs e)
     {
         _logger.LogInformation("Exit requested from tray menu");
 
-        var result = MessageBox.Show(
+        var result = System.Windows.MessageBox.Show(
             "Are you sure you want to exit Password Manager?",
             "Confirm Exit",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question
+            System.Windows.MessageBoxButton.YesNo,
+            System.Windows.MessageBoxImage.Question
         );
 
-        if (result == MessageBoxResult.Yes)
+        if (result == System.Windows.MessageBoxResult.Yes)
         {
-            Application.Current.Shutdown();
+            // Force exit - need to unsubscribe MainWindow.Closing event first
+            WinApplication.Current.Dispatcher.Invoke(() =>
+            {
+                var mainWindow = WinApplication.Current.MainWindow;
+                if (mainWindow != null)
+                {
+                    // Try to call ForceExit method if it exists (cleaner approach)
+                    var forceExitMethod = mainWindow.GetType().GetMethod("ForceExit");
+                    if (forceExitMethod != null)
+                    {
+                        _logger.LogInformation("Calling MainWindow.ForceExit()");
+                        forceExitMethod.Invoke(mainWindow, null);
+                    }
+                    else
+                    {
+                        // Fallback: Close the window first, then shutdown
+                        _logger.LogInformation("ForceExit method not found, using shutdown");
+                        mainWindow.Close();
+                        WinApplication.Current.Shutdown();
+                    }
+                }
+                else
+                {
+                    // No main window, just shutdown
+                    WinApplication.Current.Shutdown();
+                }
+            });
         }
     }
 
@@ -186,56 +211,51 @@ public sealed class SystemTrayService : ISystemTrayService
         var menu = new ContextMenu();
 
         // Open
-        var openItem = new MenuItem("Open Password Manager") { DefaultItem = true };
+        var openItem = new MenuItem { Header = "Open Password Manager" };
         openItem.Click += OnOpenClicked;
-        menu.MenuItems.Add(openItem);
+        menu.Items.Add(openItem);
 
-        menu.MenuItems.Add("-"); // Separator
+        menu.Items.Add(new Separator());
 
         // Lock Vault
-        var lockItem = new MenuItem("Lock Vault");
+        var lockItem = new MenuItem { Header = "Lock Vault" };
         lockItem.Click += OnLockVaultClicked;
-        menu.MenuItems.Add(lockItem);
+        menu.Items.Add(lockItem);
 
-        menu.MenuItems.Add("-"); // Separator
+        menu.Items.Add(new Separator());
 
         // Exit
-        var exitItem = new MenuItem("Exit");
+        var exitItem = new MenuItem { Header = "Exit" };
         exitItem.Click += OnExitClicked;
-        menu.MenuItems.Add(exitItem);
+        menu.Items.Add(exitItem);
 
         return menu;
     }
 
-    private Icon LoadApplicationIcon()
+    private System.Windows.Media.ImageSource? LoadIconSource()
     {
         try
         {
-            var iconStream = Application.GetResourceStream(
-                new Uri("pack://application:,,,/Resources/app-icon.ico")
-            )?.Stream;
-
-            if (iconStream != null)
-            {
-                return new Icon(iconStream);
-            }
+            // Try to load from application resources
+            var iconUri = new Uri("pack://application:,,,/Resources/app-icon.ico", UriKind.Absolute);
+            var iconSource = new System.Windows.Media.Imaging.BitmapImage(iconUri);
+            return iconSource;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load application icon, using default");
+            return null; // TaskbarIcon will use default icon
         }
-
-        return SystemIcons.Application;
     }
 
-    private static ToolTipIcon ConvertNotificationIcon(NotificationIcon icon)
+    private static BalloonIcon ConvertNotificationIcon(NotificationIcon icon)
     {
         return icon switch
         {
-            NotificationIcon.Info => ToolTipIcon.Info,
-            NotificationIcon.Warning => ToolTipIcon.Warning,
-            NotificationIcon.Error => ToolTipIcon.Error,
-            _ => ToolTipIcon.None
+            NotificationIcon.Info => BalloonIcon.Info,
+            NotificationIcon.Warning => BalloonIcon.Warning,
+            NotificationIcon.Error => BalloonIcon.Error,
+            _ => BalloonIcon.None
         };
     }
 
@@ -256,8 +276,8 @@ public sealed class SystemTrayService : ISystemTrayService
 
         _logger.LogInformation("Disposing system tray service");
 
-        _notifyIcon.Visible = false;
-        _notifyIcon.Dispose();
+        _taskbarIcon.Visibility = Visibility.Collapsed;
+        _taskbarIcon.Dispose();
 
         _disposed = true;
     }
