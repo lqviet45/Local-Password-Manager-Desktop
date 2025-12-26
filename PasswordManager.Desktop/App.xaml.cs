@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PasswordManager.Desktop.Extensions;
 using PasswordManager.Desktop.Services;
+using PasswordManager.Desktop.Services.Impl;
 using InfrastructureDI = PasswordManager.Infrastructure.DependencyInjection;
 using ApplicationDI = PasswordManager.Application.DependencyInjection;
 
@@ -21,6 +22,8 @@ public partial class App : System.Windows.Application
     // Desktop-specific services
     private ISystemTrayService? _systemTrayService;
     private IGlobalHotKeyService? _hotKeyService;
+    private IBrowserExtensionCommunicator? _browserExtensionCommunicator;
+    private BrowserExtensionMessageHandler? _browserExtensionMessageHandler;
 
     public App()
     {
@@ -97,6 +100,25 @@ public partial class App : System.Windows.Application
             // Continue without desktop features
         }
 
+        // Initialize browser extension services (auto-start)
+        try
+        {
+            _browserExtensionCommunicator = serviceProvider.GetRequiredService<IBrowserExtensionCommunicator>();
+            _browserExtensionMessageHandler = serviceProvider.GetRequiredService<BrowserExtensionMessageHandler>();
+
+            // Auto-register native messaging manifests for all browsers
+            await RegisterNativeMessagingManifestsAsync(_browserExtensionCommunicator, logger);
+
+            // Start the native messaging host
+            await _browserExtensionCommunicator.StartAsync();
+            logger.LogInformation("Browser extension services initialized and started");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to initialize browser extension services (non-critical)");
+            // Continue without browser extension features
+        }
+
         // Show login window
         try
         {
@@ -122,6 +144,9 @@ public partial class App : System.Windows.Application
         // Dispose desktop services
         try
         {
+            _browserExtensionMessageHandler?.Dispose();
+            await (_browserExtensionCommunicator?.StopAsync() ?? Task.CompletedTask);
+            _browserExtensionCommunicator?.Dispose();
             _systemTrayService?.Dispose();
             _hotKeyService?.Dispose();
             logger.LogInformation("Desktop services disposed successfully");
@@ -225,4 +250,34 @@ public partial class App : System.Windows.Application
     /// Gets the hotkey service instance.
     /// </summary>
     public IGlobalHotKeyService? HotKeys => _hotKeyService;
+
+    /// <summary>
+    /// Registers native messaging manifests for all supported browsers.
+    /// </summary>
+    private static async Task RegisterNativeMessagingManifestsAsync(
+        IBrowserExtensionCommunicator communicator,
+        ILogger logger)
+    {
+        var browsers = new[] { BrowserType.Chrome, BrowserType.Edge, BrowserType.Brave };
+
+        foreach (var browser in browsers)
+        {
+            try
+            {
+                var success = await communicator.RegisterManifestAsync(browser);
+                if (success)
+                {
+                    logger.LogInformation("Registered native messaging manifest for {Browser}", browser);
+                }
+                else
+                {
+                    logger.LogWarning("Failed to register manifest for {Browser}", browser);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Error registering manifest for {Browser}", browser);
+            }
+        }
+    }
 }

@@ -41,6 +41,9 @@ public static class DesktopServiceExtensions
         // Browser Extension Communicator (D: Dependency Inversion)
         services.AddSingleton<IBrowserExtensionCommunicator, BrowserExtensionCommunicator>();
 
+        // Browser Extension Message Handler (D: Dependency Inversion)
+        services.AddSingleton<BrowserExtensionMessageHandler>();
+
         return services;
     }
 

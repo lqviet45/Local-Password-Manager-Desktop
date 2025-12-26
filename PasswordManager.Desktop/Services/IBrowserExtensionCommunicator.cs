@@ -79,6 +79,7 @@ public enum ExtensionMessageType
     UpdateCredentials,
     DeleteCredentials,
     CheckVaultLocked,
+    FillCredentials,
     LockVault,
     UnlockVault,
     Ping,

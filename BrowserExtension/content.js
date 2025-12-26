@@ -207,8 +207,24 @@
       action: 'getCredentials',
       url: window.location.href
     }, (response) => {
-      if (response && response.success && response.credentials) {
-        fillForm(response.credentials);
+      if (chrome.runtime.lastError) {
+        console.error('Error getting credentials:', chrome.runtime.lastError.message);
+        return;
+      }
+
+      if (response && response.success) {
+        if (response.credentials && response.credentials.length > 0) {
+          // Use first credential (best match)
+          const cred = response.credentials[0];
+          fillForm({
+            username: cred.username,
+            password: cred.password
+          });
+        } else {
+          console.log('No credentials found for this URL');
+        }
+      } else {
+        console.error('Failed to get credentials:', response?.error);
       }
     });
   }

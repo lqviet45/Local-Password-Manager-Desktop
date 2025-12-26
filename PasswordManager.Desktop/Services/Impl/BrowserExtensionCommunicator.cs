@@ -306,18 +306,25 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
     private string GenerateManifest(BrowserType browser)
     {
         var exePath = Process.GetCurrentProcess().MainModule?.FileName ?? "PasswordManager.Desktop.exe";
+        
+        // For zero-config: Use wildcard pattern that works with any extension ID
+        // Chrome/Edge will accept this pattern for development extensions
+        var allowedOrigins = browser switch
+        {
+            BrowserType.Chrome => new[] { "chrome-extension://*/" },
+            BrowserType.Edge => new[] { "chrome-extension://*/" },
+            BrowserType.Brave => new[] { "chrome-extension://*/" },
+            BrowserType.Opera => new[] { "chrome-extension://*/" },
+            _ => Array.Empty<string>()
+        };
+
         var manifest = new
         {
             name = "com.passwordmanager",
             description = "Password Manager Native Messaging Host",
             path = exePath,
             type = "stdio",
-            allowed_origins = browser switch
-            {
-                BrowserType.Chrome => new[] { "chrome-extension://YOUR_EXTENSION_ID_HERE/" },
-                BrowserType.Edge => new[] { "chrome-extension://YOUR_EXTENSION_ID_HERE/" },
-                _ => Array.Empty<string>()
-            }
+            allowed_origins = allowedOrigins
         };
 
         return JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });

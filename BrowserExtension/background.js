@@ -1,18 +1,25 @@
 // Background service worker for Password Manager browser extension
 // Handles native messaging communication with desktop app
+// Zero-config: Works automatically when desktop app is running
 
 const NATIVE_HOST_NAME = 'com.passwordmanager';
 let nativePort = null;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 3;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let isConnected = false;
 
 // Message queue for when native host is not connected
 const messageQueue = [];
+
+// Store response callbacks for async message handling
+const responseCallbacks = {};
 
 // Connect to native messaging host
 function connectNativeHost() {
   try {
     nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    isConnected = true;
+    reconnectAttempts = 0;
     
     nativePort.onMessage.addListener((message) => {
       handleNativeMessage(message);
@@ -21,39 +28,67 @@ function connectNativeHost() {
     nativePort.onDisconnect.addListener(() => {
       console.log('Native host disconnected');
       nativePort = null;
+      isConnected = false;
       
       if (chrome.runtime.lastError) {
-        console.error('Native messaging error:', chrome.runtime.lastError.message);
+        const errorMsg = chrome.runtime.lastError.message;
+        console.error('Native messaging error:', errorMsg);
+        
+        // Don't reconnect if host not found (app not running)
+        if (errorMsg.includes('Specified native messaging host not found')) {
+          console.log('Desktop app is not running. Extension will work when app starts.');
+          return;
+        }
       }
 
-      // Attempt to reconnect
+      // Attempt to reconnect if it was a connection error
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttempts++;
+        console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
         setTimeout(() => {
           connectNativeHost();
-        }, 1000 * reconnectAttempts);
+        }, 2000 * reconnectAttempts); // Exponential backoff
+      } else {
+        console.log('Max reconnection attempts reached. Please ensure desktop app is running.');
       }
     });
 
-    reconnectAttempts = 0;
-    console.log('Connected to native messaging host');
+    console.log('✅ Connected to Password Manager desktop app');
 
     // Process queued messages
     while (messageQueue.length > 0) {
       const message = messageQueue.shift();
       sendNativeMessage(message);
     }
+
+    // Notify content scripts that connection is ready
+    chrome.runtime.sendMessage({ action: 'nativeHostConnected' }).catch(() => {
+      // Ignore if no listeners
+    });
   } catch (error) {
     console.error('Failed to connect to native host:', error);
+    isConnected = false;
+    
+    // Retry after delay
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      reconnectAttempts++;
+      setTimeout(() => {
+        connectNativeHost();
+      }, 3000);
+    }
   }
 }
 
 // Send message to native host
 function sendNativeMessage(message) {
-  if (!nativePort) {
+  if (!nativePort || !isConnected) {
     console.warn('Native port not connected, queueing message');
     messageQueue.push(message);
-    connectNativeHost();
+    
+    // Try to reconnect if not already trying
+    if (reconnectAttempts === 0) {
+      connectNativeHost();
+    }
     return;
   }
 
@@ -62,6 +97,7 @@ function sendNativeMessage(message) {
   } catch (error) {
     console.error('Failed to send message to native host:', error);
     messageQueue.push(message);
+    isConnected = false;
   }
 }
 
@@ -69,11 +105,27 @@ function sendNativeMessage(message) {
 function handleNativeMessage(message) {
   console.log('Received message from native host:', message);
 
+  // Check if this is a response to a pending request
+  if (message.MessageId && responseCallbacks[message.MessageId]) {
+    const callback = responseCallbacks[message.MessageId];
+    delete responseCallbacks[message.MessageId];
+    
+    // Format response based on message type
+    const response = {
+      success: message.Data?.success !== false,
+      ...message.Data
+    };
+    
+    callback(response);
+    return;
+  }
+
+  // Handle unsolicited messages
   switch (message.Type) {
     case 'Pong':
       console.log('Received pong from native host');
       break;
-    case 'Credentials':
+    case 'GetCredentials':
       handleCredentialsResponse(message);
       break;
     case 'VaultLocked':
@@ -138,27 +190,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Handle get credentials request
 function handleGetCredentials(request, sendResponse) {
+  if (!isConnected) {
+    sendResponse({ 
+      success: false, 
+      error: 'Desktop app is not running. Please start Password Manager desktop app.' 
+    });
+    return;
+  }
+
   const message = {
     Type: 'GetCredentials',
     MessageId: generateMessageId(),
     Data: {
-      url: request.url || sender?.tab?.url
+      url: request.url
     },
     Timestamp: new Date().toISOString()
   };
 
+  // Store callback for response
+  const messageId = message.MessageId;
+  responseCallbacks[messageId] = sendResponse;
+
   sendNativeMessage(message);
 
-  // Wait for response (simplified - in production, use proper message correlation)
+  // Timeout after 5 seconds
   setTimeout(() => {
-    chrome.storage.local.get(['credentials'], (result) => {
-      sendResponse({ success: true, credentials: result.credentials });
-    });
-  }, 500);
+    if (responseCallbacks[messageId]) {
+      delete responseCallbacks[messageId];
+      sendResponse({ 
+        success: false, 
+        error: 'Timeout waiting for response from desktop app' 
+      });
+    }
+  }, 5000);
 }
 
 // Handle save credentials request
 function handleSaveCredentials(request, sendResponse) {
+  if (!isConnected) {
+    sendResponse({ 
+      success: false, 
+      error: 'Desktop app is not running. Please start Password Manager desktop app.' 
+    });
+    return;
+  }
+
   const message = {
     Type: 'SaveCredentials',
     MessageId: generateMessageId(),
@@ -171,12 +247,34 @@ function handleSaveCredentials(request, sendResponse) {
     Timestamp: new Date().toISOString()
   };
 
+  // Store callback for response
+  const messageId = message.MessageId;
+  responseCallbacks[messageId] = sendResponse;
+
   sendNativeMessage(message);
-  sendResponse({ success: true });
+
+  // Timeout after 5 seconds
+  setTimeout(() => {
+    if (responseCallbacks[messageId]) {
+      delete responseCallbacks[messageId];
+      sendResponse({ 
+        success: false, 
+        error: 'Timeout waiting for response from desktop app' 
+      });
+    }
+  }, 5000);
 }
 
 // Handle fill credentials request
 function handleFillCredentials(request, sendResponse) {
+  if (!isConnected) {
+    sendResponse({ 
+      success: false, 
+      error: 'Desktop app is not running. Please start Password Manager desktop app.' 
+    });
+    return;
+  }
+
   const message = {
     Type: 'FillCredentials',
     MessageId: generateMessageId(),
@@ -187,12 +285,35 @@ function handleFillCredentials(request, sendResponse) {
     Timestamp: new Date().toISOString()
   };
 
+  // Store callback for response
+  const messageId = message.MessageId;
+  responseCallbacks[messageId] = sendResponse;
+
   sendNativeMessage(message);
-  sendResponse({ success: true });
+
+  // Timeout after 5 seconds
+  setTimeout(() => {
+    if (responseCallbacks[messageId]) {
+      delete responseCallbacks[messageId];
+      sendResponse({ 
+        success: false, 
+        error: 'Timeout waiting for response from desktop app' 
+      });
+    }
+  }, 5000);
 }
 
 // Handle check vault locked request
 function handleCheckVaultLocked(sendResponse) {
+  if (!isConnected) {
+    sendResponse({ 
+      success: false, 
+      locked: true,
+      error: 'Desktop app is not running' 
+    });
+    return;
+  }
+
   const message = {
     Type: 'CheckVaultLocked',
     MessageId: generateMessageId(),
@@ -200,13 +321,23 @@ function handleCheckVaultLocked(sendResponse) {
     Timestamp: new Date().toISOString()
   };
 
+  // Store callback for response
+  const messageId = message.MessageId;
+  responseCallbacks[messageId] = sendResponse;
+
   sendNativeMessage(message);
 
+  // Timeout after 5 seconds
   setTimeout(() => {
-    chrome.storage.local.get(['vaultLocked'], (result) => {
-      sendResponse({ success: true, locked: result.vaultLocked || false });
-    });
-  }, 500);
+    if (responseCallbacks[messageId]) {
+      delete responseCallbacks[messageId];
+      sendResponse({ 
+        success: false, 
+        locked: true,
+        error: 'Timeout waiting for response from desktop app' 
+      });
+    }
+  }, 5000);
 }
 
 // Generate unique message ID
