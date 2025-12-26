@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -16,7 +15,9 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
 {
     private readonly ILogger<BrowserExtensionCommunicator> _logger;
     private readonly CancellationTokenSource _cancellationTokenSource;
-    private NamedPipeServerStream? _pipeServer;
+    private Stream? _stdin;
+    private Stream? _stdout;
+    private Task? _readTask;
     private bool _isRunning;
     private bool _disposed;
 
@@ -47,20 +48,15 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
             _isRunning = true;
             _logger.LogInformation("Starting native messaging host server");
 
-            // Create named pipe for communication
-            var pipeName = $"PasswordManagerNativeHost_{Process.GetCurrentProcess().Id}";
-            _pipeServer = new NamedPipeServerStream(
-                pipeName,
-                PipeDirection.InOut,
-                1,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous
-            );
+            // Native Messaging uses stdin/stdout for communication
+            // The browser launches this executable and communicates via standard streams
+            _stdin = Console.OpenStandardInput();
+            _stdout = Console.OpenStandardOutput();
 
-            // Start listening for connections
-            _ = Task.Run(() => ListenForConnectionsAsync(cancellationToken), cancellationToken);
+            // Start reading messages from stdin
+            _readTask = Task.Run(() => ReadMessagesAsync(cancellationToken), cancellationToken);
 
-            _logger.LogInformation("Native messaging host server started");
+            _logger.LogInformation("Native messaging host server started (using stdin/stdout)");
         }
         catch (Exception ex)
         {
@@ -84,8 +80,23 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
             _isRunning = false;
             _cancellationTokenSource.Cancel();
 
-            _pipeServer?.Dispose();
-            _pipeServer = null;
+            // Wait for read task to complete
+            if (_readTask != null)
+            {
+                try
+                {
+                    await Task.WhenAny(_readTask, Task.Delay(1000, cancellationToken));
+                }
+                catch
+                {
+                    // Ignore
+                }
+            }
+
+            _stdin?.Dispose();
+            _stdout?.Dispose();
+            _stdin = null;
+            _stdout = null;
 
             _logger.LogInformation("Native messaging host server stopped");
         }
@@ -150,9 +161,9 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
     {
         ThrowIfDisposed();
 
-        if (!_isRunning || _pipeServer == null || !_pipeServer.IsConnected)
+        if (!_isRunning || _stdout == null)
         {
-            _logger.LogWarning("Cannot send message: Native messaging host is not connected");
+            _logger.LogWarning("Cannot send message: Native messaging host is not running");
             return false;
         }
 
@@ -160,11 +171,17 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
         {
             var json = JsonSerializer.Serialize(message);
             var bytes = Encoding.UTF8.GetBytes(json);
+            
+            // Native Messaging protocol: 4-byte little-endian length prefix
             var lengthBytes = BitConverter.GetBytes(bytes.Length);
+            if (!BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(lengthBytes);
+            }
 
-            await _pipeServer.WriteAsync(lengthBytes, 0, 4, cancellationToken);
-            await _pipeServer.WriteAsync(bytes, 0, bytes.Length, cancellationToken);
-            await _pipeServer.FlushAsync(cancellationToken);
+            await _stdout.WriteAsync(lengthBytes, 0, 4, cancellationToken);
+            await _stdout.WriteAsync(bytes, 0, bytes.Length, cancellationToken);
+            await _stdout.FlushAsync(cancellationToken);
 
             _logger.LogDebug("Sent message to browser extension: {Type}", message.Type);
             return true;
@@ -178,50 +195,42 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
 
     #region Private Methods
 
-    private async Task ListenForConnectionsAsync(CancellationToken cancellationToken)
-    {
-        while (_isRunning && !cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                if (_pipeServer == null)
-                    break;
-
-                await _pipeServer.WaitForConnectionAsync(cancellationToken);
-
-                _logger.LogInformation("Browser extension connected");
-
-                // Read messages in a loop
-                _ = Task.Run(() => ReadMessagesAsync(cancellationToken), cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in connection listener");
-                await Task.Delay(1000, cancellationToken);
-            }
-        }
-    }
-
     private async Task ReadMessagesAsync(CancellationToken cancellationToken)
     {
-        if (_pipeServer == null || !_pipeServer.IsConnected)
+        if (_stdin == null)
             return;
 
         try
         {
-            while (_isRunning && _pipeServer.IsConnected && !cancellationToken.IsCancellationRequested)
-            {
-                // Read message length (4 bytes)
-                var lengthBytes = new byte[4];
-                var bytesRead = await _pipeServer.ReadAsync(lengthBytes, 0, 4, cancellationToken);
-                if (bytesRead != 4)
-                    break;
+            _logger.LogInformation("Browser extension connected via stdin/stdout");
 
+            while (_isRunning && !cancellationToken.IsCancellationRequested)
+            {
+                // Read message length (4 bytes, little-endian)
+                var lengthBytes = new byte[4];
+                var totalRead = 0;
+                
+                while (totalRead < 4)
+                {
+                    var bytesRead = await _stdin.ReadAsync(lengthBytes, totalRead, 4 - totalRead, cancellationToken);
+                    if (bytesRead == 0)
+                    {
+                        // EOF - browser disconnected
+                        _logger.LogInformation("Browser extension disconnected (EOF)");
+                        OnBrowserDisconnected(BrowserType.Chrome, "EOF");
+                        return;
+                    }
+                    totalRead += bytesRead;
+                }
+
+                // Convert to int (little-endian)
                 var messageLength = BitConverter.ToInt32(lengthBytes, 0);
+                if (!BitConverter.IsLittleEndian)
+                {
+                    Array.Reverse(lengthBytes);
+                    messageLength = BitConverter.ToInt32(lengthBytes, 0);
+                }
+
                 if (messageLength <= 0 || messageLength > 1024 * 1024) // Max 1MB
                 {
                     _logger.LogWarning("Invalid message length: {Length}", messageLength);
@@ -230,18 +239,32 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
 
                 // Read message content
                 var messageBytes = new byte[messageLength];
-                bytesRead = await _pipeServer.ReadAsync(messageBytes, 0, messageLength, cancellationToken);
-                if (bytesRead != messageLength)
-                    break;
+                totalRead = 0;
+                
+                while (totalRead < messageLength)
+                {
+                    var bytesRead = await _stdin.ReadAsync(messageBytes, totalRead, messageLength - totalRead, cancellationToken);
+                    if (bytesRead == 0)
+                    {
+                        _logger.LogWarning("Unexpected EOF while reading message");
+                        return;
+                    }
+                    totalRead += bytesRead;
+                }
 
-                var json = Encoding.UTF8.GetString(messageBytes, 0, bytesRead);
+                var json = Encoding.UTF8.GetString(messageBytes, 0, totalRead);
                 var message = JsonSerializer.Deserialize<ExtensionMessage>(json);
 
                 if (message != null)
                 {
-                    OnMessageReceived(message, BrowserType.Chrome); // TODO: Detect actual browser
+                    _logger.LogDebug("Received message from browser extension: {Type}", message.Type);
+                    OnMessageReceived(message, BrowserType.Chrome); // TODO: Detect actual browser from manifest
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Read messages cancelled");
         }
         catch (Exception ex)
         {
@@ -317,7 +340,8 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
 
         StopAsync().GetAwaiter().GetResult();
         _cancellationTokenSource.Dispose();
-        _pipeServer?.Dispose();
+        _stdin?.Dispose();
+        _stdout?.Dispose();
 
         _disposed = true;
     }
