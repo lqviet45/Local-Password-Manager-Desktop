@@ -37,13 +37,13 @@ public static class DesktopServiceExtensions
 
         // Auto-Save Credentials Service (D: Dependency Inversion)
         services.AddSingleton<IAutoSaveCredentialsService, AutoSaveCredentialsService>();
-
-        // Browser Extension Communicator (D: Dependency Inversion)
-        services.AddSingleton<IBrowserExtensionCommunicator, BrowserExtensionCommunicator>();
-
-        // Browser Extension Message Handler (D: Dependency Inversion)
-        services.AddSingleton<BrowserExtensionMessageHandler>();
-
+        services.AddSingleton<ILocalApiServer, LocalApiServer>();
+        
+        // ❌ DEPRECATED: Browser Extension Communicator (Native Messaging)
+        // Keeping for backward compatibility but not recommended
+        // services.AddSingleton<IBrowserExtensionCommunicator, BrowserExtensionCommunicator>();
+        // services.AddSingleton<BrowserExtensionMessageHandler>();
+        
         return services;
     }
 
@@ -65,13 +65,13 @@ public static class DesktopServiceExtensions
     /// </summary>
     public static IServiceCollection AddViewModels(this IServiceCollection services)
     {
-        // Transient ViewModels - new instance each time
+        // Transient: New instance for each request
         services.AddTransient<LoginViewModel>();
+        services.AddTransient<VaultViewModel>();
         services.AddTransient<AddEditItemViewModel>();
+        services.AddTransient<SettingsViewModel>();
 
-        // Singleton ViewModels - shared instance
-        services.AddSingleton<VaultViewModel>();
-        services.AddSingleton<SettingsViewModel>();
+        // Singleton: One instance for entire application lifetime
         services.AddSingleton<MainViewModel>();
 
         return services;
@@ -84,7 +84,10 @@ public static class DesktopServiceExtensions
     {
         services.AddTransient<LoginWindow>();
         // Other views are created through WindowFactory
-
+        services.AddTransient<MainWindow>();
+        services.AddTransient<AddEditItemWindow>();
+        services.AddTransient<VaultView>();
+        services.AddTransient<SettingsView>();
         return services;
     }
 

@@ -1,16 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Password Manager",
-  "version": "1.0.0",
-  "description": "Native integration with Password Manager desktop application",
+  "version": "2.0.0",
+  "description": "Secure password manager with desktop app integration via HTTP",
   "permissions": [
-    "nativeMessaging",
     "tabs",
     "activeTab",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "http://localhost:7777/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -36,4 +37,3 @@
     "128": "icon128.png"
   }
 }
-

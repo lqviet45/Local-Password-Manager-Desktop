@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using PasswordManager.Desktop.Services;
 
@@ -20,6 +22,7 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
     private Task? _readTask;
     private bool _isRunning;
     private bool _disposed;
+    private readonly ManualResetEventSlim _readTaskCompleted = new(false);
 
     public bool IsRunning => _isRunning;
 
@@ -169,7 +172,11 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
 
         try
         {
-            var json = JsonSerializer.Serialize(message);
+            var options = new JsonSerializerOptions
+            {
+                Converters = { new JsonStringEnumConverter() }
+            };
+            var json = JsonSerializer.Serialize(message, options);
             var bytes = Encoding.UTF8.GetBytes(json);
             
             // Native Messaging protocol: 4-byte little-endian length prefix
@@ -198,10 +205,16 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
     private async Task ReadMessagesAsync(CancellationToken cancellationToken)
     {
         if (_stdin == null)
+        {
+            _logger.LogWarning("stdin is null, cannot read messages");
             return;
+        }
 
         try
         {
+            // Trigger browser connected event
+            OnBrowserConnected(BrowserType.Chrome, "unknown"); // Browser will be detected from manifest
+            
             _logger.LogInformation("Browser extension connected via stdin/stdout");
 
             while (_isRunning && !cancellationToken.IsCancellationRequested)
@@ -253,12 +266,20 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
                 }
 
                 var json = Encoding.UTF8.GetString(messageBytes, 0, totalRead);
-                var message = JsonSerializer.Deserialize<ExtensionMessage>(json);
-
+                var options = new JsonSerializerOptions
+                {
+                    Converters = { new JsonStringEnumConverter() }
+                };
+                var message = JsonSerializer.Deserialize<ExtensionMessage>(json, options);
                 if (message != null)
                 {
-                    _logger.LogDebug("Received message from browser extension: {Type}", message.Type);
+                    _logger.LogInformation("Received message from browser extension: {Type}, MessageId: {MessageId}", 
+                        message.Type, message.MessageId);
                     OnMessageReceived(message, BrowserType.Chrome); // TODO: Detect actual browser from manifest
+                }
+                else
+                {
+                    _logger.LogWarning("Received null message from browser extension");
                 }
             }
         }
@@ -271,6 +292,18 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
             _logger.LogError(ex, "Error reading messages from browser extension");
             OnBrowserDisconnected(BrowserType.Chrome, ex.Message);
         }
+        finally
+        {
+            _readTaskCompleted.Set();
+        }
+    }
+
+    /// <summary>
+    /// Waits for the read task to complete (used in native messaging mode).
+    /// </summary>
+    public void WaitForReadTask()
+    {
+        _readTaskCompleted.Wait();
     }
 
     private void OnMessageReceived(ExtensionMessage message, BrowserType browser)
@@ -279,6 +312,15 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
         {
             Message = message,
             Browser = browser
+        });
+    }
+
+    private void OnBrowserConnected(BrowserType browser, string extensionId)
+    {
+        BrowserConnected?.Invoke(this, new BrowserConnectedEventArgs
+        {
+            Browser = browser,
+            ExtensionId = extensionId
         });
     }
 
@@ -323,6 +365,7 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
             name = "com.passwordmanager",
             description = "Password Manager Native Messaging Host",
             path = exePath,
+            args = new[] { "--native-messaging" },
             type = "stdio",
             allowed_origins = allowedOrigins
         };
@@ -347,6 +390,7 @@ public sealed class BrowserExtensionCommunicator : IBrowserExtensionCommunicator
 
         StopAsync().GetAwaiter().GetResult();
         _cancellationTokenSource.Dispose();
+        _readTaskCompleted.Dispose();
         _stdin?.Dispose();
         _stdout?.Dispose();
 

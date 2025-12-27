@@ -1,3 +1,5 @@
+using System;
+using System.Threading;
 using System.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +16,7 @@ namespace PasswordManager.Desktop;
 /// <summary>
 /// Interaction logic for App.xaml
 /// Configures Dependency Injection and application lifetime.
+/// Uses HTTP Server for browser extension communication (simpler than Native Messaging).
 /// </summary>
 public partial class App : System.Windows.Application
 {
@@ -22,8 +25,9 @@ public partial class App : System.Windows.Application
     // Desktop-specific services
     private ISystemTrayService? _systemTrayService;
     private IGlobalHotKeyService? _hotKeyService;
-    private IBrowserExtensionCommunicator? _browserExtensionCommunicator;
-    private BrowserExtensionMessageHandler? _browserExtensionMessageHandler;
+    
+    // ✅ CHANGED: Local HTTP Server (replaces Native Messaging)
+    private ILocalApiServer? _localApiServer;
 
     public App()
     {
@@ -48,7 +52,7 @@ public partial class App : System.Windows.Application
         // Application Services
         services.AddApplicationServices();
         
-        // Desktop-specific services (System Tray, Hotkeys, Clipboard)
+        // Desktop-specific services (System Tray, Hotkeys, Clipboard, HTTP Server)
         services.AddDesktopServices();
 
         // ViewModels
@@ -70,6 +74,10 @@ public partial class App : System.Windows.Application
         // Get logger
         var logger = _host.Services.GetRequiredService<ILogger<App>>();
         logger.LogInformation("=== APPLICATION STARTUP ===");
+
+        // Log command line arguments for debugging
+        var args = Environment.GetCommandLineArgs();
+        logger.LogInformation("Command line arguments: {Args}", string.Join(" ", args));
 
         // Initialize database
         var serviceProvider = _host.Services;
@@ -100,23 +108,22 @@ public partial class App : System.Windows.Application
             // Continue without desktop features
         }
 
-        // Initialize browser extension services (auto-start)
+        // ✅ NEW: Start Local HTTP Server for browser extension
         try
         {
-            _browserExtensionCommunicator = serviceProvider.GetRequiredService<IBrowserExtensionCommunicator>();
-            _browserExtensionMessageHandler = serviceProvider.GetRequiredService<BrowserExtensionMessageHandler>();
-
-            // Auto-register native messaging manifests for all browsers
-            await RegisterNativeMessagingManifestsAsync(_browserExtensionCommunicator, logger);
-
-            // Start the native messaging host
-            await _browserExtensionCommunicator.StartAsync();
-            logger.LogInformation("Browser extension services initialized and started");
+            _localApiServer = serviceProvider.GetRequiredService<ILocalApiServer>();
+            await _localApiServer.StartAsync(port: 7777);
+            
+            logger.LogInformation("═══════════════════════════════════════════════════════");
+            logger.LogInformation("🌐 Local API Server started for browser extension");
+            logger.LogInformation("📍 Server URL: {Url}", _localApiServer.ServerUrl);
+            logger.LogInformation("🔌 Extension can now connect via HTTP");
+            logger.LogInformation("═══════════════════════════════════════════════════════");
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to initialize browser extension services (non-critical)");
-            // Continue without browser extension features
+            logger.LogWarning(ex, "Failed to start local API server (non-critical)");
+            logger.LogWarning("⚠️  Browser extension will NOT work without the API server");
         }
 
         // Show login window
@@ -141,12 +148,24 @@ public partial class App : System.Windows.Application
         var logger = _host.Services.GetRequiredService<ILogger<App>>();
         logger.LogInformation("=== APPLICATION SHUTDOWN ===");
 
+        // ✅ CHANGED: Stop HTTP Server
+        try
+        {
+            if (_localApiServer != null)
+            {
+                await _localApiServer.StopAsync();
+                _localApiServer.Dispose();
+                logger.LogInformation("Local API server stopped and disposed");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Error stopping local API server");
+        }
+
         // Dispose desktop services
         try
         {
-            _browserExtensionMessageHandler?.Dispose();
-            await (_browserExtensionCommunicator?.StopAsync() ?? Task.CompletedTask);
-            _browserExtensionCommunicator?.Dispose();
             _systemTrayService?.Dispose();
             _hotKeyService?.Dispose();
             logger.LogInformation("Desktop services disposed successfully");
@@ -250,34 +269,9 @@ public partial class App : System.Windows.Application
     /// Gets the hotkey service instance.
     /// </summary>
     public IGlobalHotKeyService? HotKeys => _hotKeyService;
-
+    
     /// <summary>
-    /// Registers native messaging manifests for all supported browsers.
+    /// Gets the local API server instance.
     /// </summary>
-    private static async Task RegisterNativeMessagingManifestsAsync(
-        IBrowserExtensionCommunicator communicator,
-        ILogger logger)
-    {
-        var browsers = new[] { BrowserType.Chrome, BrowserType.Edge, BrowserType.Brave };
-
-        foreach (var browser in browsers)
-        {
-            try
-            {
-                var success = await communicator.RegisterManifestAsync(browser);
-                if (success)
-                {
-                    logger.LogInformation("Registered native messaging manifest for {Browser}", browser);
-                }
-                else
-                {
-                    logger.LogWarning("Failed to register manifest for {Browser}", browser);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Error registering manifest for {Browser}", browser);
-            }
-        }
-    }
+    public ILocalApiServer? LocalApiServer => _localApiServer;
 }

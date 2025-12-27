@@ -1,359 +1,238 @@
-// Background service worker for Password Manager browser extension
-// Handles native messaging communication with desktop app
-// Zero-config: Works automatically when desktop app is running
+﻿// Background service worker for Password Manager browser extension
+// HTTP-BASED VERSION - Much simpler than Native Messaging!
+// Communicates with desktop app via localhost HTTP API
 
-const NATIVE_HOST_NAME = 'com.passwordmanager';
-let nativePort = null;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const API_BASE_URL = 'http://localhost:7777';
+
 let isConnected = false;
+let lastStatusCheck = 0;
+const STATUS_CHECK_INTERVAL = 5000; // 5 seconds
 
-// Message queue for when native host is not connected
-const messageQueue = [];
+// ✅ Simple HTTP request helper
+async function sendApiRequest(endpoint, method = 'GET', data = null) {
+    try {
+        const options = {
+            method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            mode: 'cors'
+        };
 
-// Store response callbacks for async message handling
-const responseCallbacks = {};
-
-// Connect to native messaging host
-function connectNativeHost() {
-  try {
-    nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-    isConnected = true;
-    reconnectAttempts = 0;
-    
-    nativePort.onMessage.addListener((message) => {
-      handleNativeMessage(message);
-    });
-
-    nativePort.onDisconnect.addListener(() => {
-      console.log('Native host disconnected');
-      nativePort = null;
-      isConnected = false;
-      
-      if (chrome.runtime.lastError) {
-        const errorMsg = chrome.runtime.lastError.message;
-        console.error('Native messaging error:', errorMsg);
-        
-        // Don't reconnect if host not found (app not running)
-        if (errorMsg.includes('Specified native messaging host not found')) {
-          console.log('Desktop app is not running. Extension will work when app starts.');
-          return;
+        if (data && method !== 'GET') {
+            options.body = JSON.stringify(data);
         }
-      }
 
-      // Attempt to reconnect if it was a connection error
-      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        reconnectAttempts++;
-        console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-        setTimeout(() => {
-          connectNativeHost();
-        }, 2000 * reconnectAttempts); // Exponential backoff
-      } else {
-        console.log('Max reconnection attempts reached. Please ensure desktop app is running.');
-      }
+        const url = method === 'GET' && data
+            ? `${API_BASE_URL}${endpoint}?${new URLSearchParams(data)}`
+            : `${API_BASE_URL}${endpoint}`;
+
+        console.log(`📤 API Request: ${method} ${endpoint}`, data || '');
+
+        const response = await fetch(url, options);
+        const result = await response.json();
+
+        console.log(`📨 API Response:`, result);
+        return result;
+    } catch (error) {
+        console.error('❌ API request failed:', error);
+
+        // Check if it's a connection error
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            isConnected = false;
+            return {
+                success: false,
+                error: 'Desktop app is not running',
+                connectionError: true
+            };
+        }
+
+        return { success: false, error: error.message };
+    }
+}
+
+// ✅ Ping desktop app to check if it's running
+async function pingDesktopApp() {
+    const result = await sendApiRequest('/api/ping');
+
+    if (result.success) {
+        if (!isConnected) {
+            console.log('✅ Connected to desktop app:', result.message);
+            isConnected = true;
+
+            // Notify popup that we're connected
+            chrome.runtime.sendMessage({
+                action: 'desktopAppConnected',
+                data: result
+            }).catch(() => {});
+        }
+        return true;
+    } else {
+        if (isConnected) {
+            console.log('🔌 Lost connection to desktop app');
+            isConnected = false;
+        }
+        return false;
+    }
+}
+
+// ✅ Get vault status (logged in, locked, etc.)
+async function getVaultStatus() {
+    const result = await sendApiRequest('/api/status');
+
+    if (result.success) {
+        return {
+            success: true,
+            isLoggedIn: result.isLoggedIn,
+            isVaultLocked: result.isVaultLocked,
+            userEmail: result.userEmail,
+            isPremium: result.isPremium
+        };
+    } else {
+        return {
+            success: false,
+            isLoggedIn: false,
+            isVaultLocked: true,
+            error: result.error || 'Desktop app not running'
+        };
+    }
+}
+
+// ✅ Get credentials for a specific URL
+async function getCredentials(url) {
+    const result = await sendApiRequest('/api/credentials', 'GET', { url });
+
+    if (result.success) {
+        return {
+            success: true,
+            credentials: result.credentials || [],
+            locked: result.locked || false
+        };
+    } else {
+        return {
+            success: false,
+            credentials: [],
+            error: result.error || 'Failed to get credentials',
+            locked: result.locked || false
+        };
+    }
+}
+
+// ✅ Save new credentials
+async function saveCredentials(url, username, password, name = null) {
+    const result = await sendApiRequest('/api/credentials', 'POST', {
+        url,
+        username,
+        password,
+        name: name || new URL(url).hostname
     });
 
-    console.log('✅ Connected to Password Manager desktop app');
-
-    // Process queued messages
-    while (messageQueue.length > 0) {
-      const message = messageQueue.shift();
-      sendNativeMessage(message);
+    if (result.success) {
+        console.log('✅ Credentials saved:', result.itemId);
+        return {
+            success: true,
+            itemId: result.itemId,
+            message: result.message
+        };
+    } else {
+        return {
+            success: false,
+            error: result.error || 'Failed to save credentials'
+        };
     }
+}
 
-    // Notify content scripts that connection is ready
-    chrome.runtime.sendMessage({ action: 'nativeHostConnected' }).catch(() => {
-      // Ignore if no listeners
-    });
-  } catch (error) {
-    console.error('Failed to connect to native host:', error);
-    isConnected = false;
-    
-    // Retry after delay
-    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      reconnectAttempts++;
-      setTimeout(() => {
-        connectNativeHost();
-      }, 3000);
+// ✅ Fill credentials for a specific vault item
+async function fillCredentials(itemId) {
+    const result = await sendApiRequest('/api/credentials/fill', 'GET', { itemId });
+
+    if (result.success) {
+        return {
+            success: true,
+            credentials: result.credentials
+        };
+    } else {
+        return {
+            success: false,
+            error: result.error || 'Failed to fill credentials'
+        };
     }
-  }
 }
 
-// Send message to native host
-function sendNativeMessage(message) {
-  if (!nativePort || !isConnected) {
-    console.warn('Native port not connected, queueing message');
-    messageQueue.push(message);
-    
-    // Try to reconnect if not already trying
-    if (reconnectAttempts === 0) {
-      connectNativeHost();
-    }
-    return;
-  }
-
-  try {
-    nativePort.postMessage(message);
-  } catch (error) {
-    console.error('Failed to send message to native host:', error);
-    messageQueue.push(message);
-    isConnected = false;
-  }
-}
-
-// Handle messages from native host
-function handleNativeMessage(message) {
-  console.log('Received message from native host:', message);
-
-  // Check if this is a response to a pending request
-  if (message.MessageId && responseCallbacks[message.MessageId]) {
-    const callback = responseCallbacks[message.MessageId];
-    delete responseCallbacks[message.MessageId];
-    
-    // Format response based on message type
-    const response = {
-      success: message.Data?.success !== false,
-      ...message.Data
-    };
-    
-    callback(response);
-    return;
-  }
-
-  // Handle unsolicited messages
-  switch (message.Type) {
-    case 'Pong':
-      console.log('Received pong from native host');
-      break;
-    case 'GetCredentials':
-      handleCredentialsResponse(message);
-      break;
-    case 'VaultLocked':
-      handleVaultLockedResponse(message);
-      break;
-    default:
-      console.log('Unknown message type:', message.Type);
-  }
-}
-
-// Handle credentials response
-function handleCredentialsResponse(message) {
-  // Store credentials temporarily for content script
-  chrome.storage.local.set({
-    credentials: message.Data,
-    timestamp: Date.now()
-  });
-}
-
-// Handle vault locked response
-function handleVaultLockedResponse(message) {
-  chrome.storage.local.set({
-    vaultLocked: message.Data?.locked || false
-  });
-}
-
-// Listen for messages from content script or popup
+// ✅ Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Received message:', request);
+    console.log('📨 Received message:', request.action);
 
-  switch (request.action) {
-    case 'getCredentials':
-      handleGetCredentials(request, sendResponse);
-      return true; // Will respond asynchronously
+    switch (request.action) {
+        case 'ping':
+            pingDesktopApp().then(connected => {
+                sendResponse({ success: connected });
+            });
+            return true; // Will respond asynchronously
 
-    case 'saveCredentials':
-      handleSaveCredentials(request, sendResponse);
-      return true;
+        case 'checkVaultLocked':
+            getVaultStatus().then(sendResponse);
+            return true;
 
-    case 'fillCredentials':
-      handleFillCredentials(request, sendResponse);
-      return true;
+        case 'getCredentials':
+            getCredentials(request.url).then(sendResponse);
+            return true;
 
-    case 'checkVaultLocked':
-      handleCheckVaultLocked(sendResponse);
-      return true;
+        case 'saveCredentials':
+            saveCredentials(
+                request.url,
+                request.username,
+                request.password,
+                request.name
+            ).then(sendResponse);
+            return true;
 
-    case 'ping':
-      sendNativeMessage({
-        Type: 'Ping',
-        MessageId: generateMessageId(),
-        Data: null,
-        Timestamp: new Date().toISOString()
-      });
-      sendResponse({ success: true });
-      break;
+        case 'fillCredentials':
+            fillCredentials(request.itemId).then(sendResponse);
+            return true;
 
-    default:
-      sendResponse({ success: false, error: 'Unknown action' });
-  }
+        default:
+            console.warn('❓ Unknown action:', request.action);
+            sendResponse({ success: false, error: 'Unknown action' });
+    }
 });
 
-// Handle get credentials request
-function handleGetCredentials(request, sendResponse) {
-  if (!isConnected) {
-    sendResponse({ 
-      success: false, 
-      error: 'Desktop app is not running. Please start Password Manager desktop app.' 
-    });
-    return;
-  }
+// ✅ Periodic status check
+async function periodicStatusCheck() {
+    const now = Date.now();
 
-  const message = {
-    Type: 'GetCredentials',
-    MessageId: generateMessageId(),
-    Data: {
-      url: request.url
-    },
-    Timestamp: new Date().toISOString()
-  };
-
-  // Store callback for response
-  const messageId = message.MessageId;
-  responseCallbacks[messageId] = sendResponse;
-
-  sendNativeMessage(message);
-
-  // Timeout after 5 seconds
-  setTimeout(() => {
-    if (responseCallbacks[messageId]) {
-      delete responseCallbacks[messageId];
-      sendResponse({ 
-        success: false, 
-        error: 'Timeout waiting for response from desktop app' 
-      });
+    // Only check every 5 seconds to avoid spam
+    if (now - lastStatusCheck < STATUS_CHECK_INTERVAL) {
+        return;
     }
-  }, 5000);
+
+    lastStatusCheck = now;
+    await pingDesktopApp();
 }
 
-// Handle save credentials request
-function handleSaveCredentials(request, sendResponse) {
-  if (!isConnected) {
-    sendResponse({ 
-      success: false, 
-      error: 'Desktop app is not running. Please start Password Manager desktop app.' 
-    });
-    return;
-  }
+// ✅ Start periodic checks
+setInterval(periodicStatusCheck, STATUS_CHECK_INTERVAL);
 
-  const message = {
-    Type: 'SaveCredentials',
-    MessageId: generateMessageId(),
-    Data: {
-      url: request.url,
-      username: request.username,
-      password: request.password,
-      name: request.name
-    },
-    Timestamp: new Date().toISOString()
-  };
-
-  // Store callback for response
-  const messageId = message.MessageId;
-  responseCallbacks[messageId] = sendResponse;
-
-  sendNativeMessage(message);
-
-  // Timeout after 5 seconds
-  setTimeout(() => {
-    if (responseCallbacks[messageId]) {
-      delete responseCallbacks[messageId];
-      sendResponse({ 
-        success: false, 
-        error: 'Timeout waiting for response from desktop app' 
-      });
-    }
-  }, 5000);
-}
-
-// Handle fill credentials request
-function handleFillCredentials(request, sendResponse) {
-  if (!isConnected) {
-    sendResponse({ 
-      success: false, 
-      error: 'Desktop app is not running. Please start Password Manager desktop app.' 
-    });
-    return;
-  }
-
-  const message = {
-    Type: 'FillCredentials',
-    MessageId: generateMessageId(),
-    Data: {
-      vaultItemId: request.vaultItemId,
-      url: request.url
-    },
-    Timestamp: new Date().toISOString()
-  };
-
-  // Store callback for response
-  const messageId = message.MessageId;
-  responseCallbacks[messageId] = sendResponse;
-
-  sendNativeMessage(message);
-
-  // Timeout after 5 seconds
-  setTimeout(() => {
-    if (responseCallbacks[messageId]) {
-      delete responseCallbacks[messageId];
-      sendResponse({ 
-        success: false, 
-        error: 'Timeout waiting for response from desktop app' 
-      });
-    }
-  }, 5000);
-}
-
-// Handle check vault locked request
-function handleCheckVaultLocked(sendResponse) {
-  if (!isConnected) {
-    sendResponse({ 
-      success: false, 
-      locked: true,
-      error: 'Desktop app is not running' 
-    });
-    return;
-  }
-
-  const message = {
-    Type: 'CheckVaultLocked',
-    MessageId: generateMessageId(),
-    Data: null,
-    Timestamp: new Date().toISOString()
-  };
-
-  // Store callback for response
-  const messageId = message.MessageId;
-  responseCallbacks[messageId] = sendResponse;
-
-  sendNativeMessage(message);
-
-  // Timeout after 5 seconds
-  setTimeout(() => {
-    if (responseCallbacks[messageId]) {
-      delete responseCallbacks[messageId];
-      sendResponse({ 
-        success: false, 
-        locked: true,
-        error: 'Timeout waiting for response from desktop app' 
-      });
-    }
-  }, 5000);
-}
-
-// Generate unique message ID
-function generateMessageId() {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
-
-// Initialize connection on startup
+// ✅ Initial connection check on startup
 chrome.runtime.onStartup.addListener(() => {
-  connectNativeHost();
+    console.log('🚀 Extension starting...');
+    pingDesktopApp();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  connectNativeHost();
+    console.log('📦 Extension installed/updated');
+    pingDesktopApp();
 });
 
-// Connect immediately
-connectNativeHost();
+// ✅ Check connection immediately when service worker loads
+console.log('🔧 Service worker loaded');
+pingDesktopApp();
 
+// ✅ Keep service worker alive (Chrome requirement)
+chrome.alarms.create('keepAlive', { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'keepAlive') {
+        console.log('🔄 Keep-alive ping');
+        pingDesktopApp();
+    }
+});
