@@ -13,3 +13,8 @@ riderModule.iml
 *.sln.docstates
 *.prodution.json
 *.env
+
+/PasswordManager.Desktop/installer.iss
+/PasswordManager.Desktop/obj/
+/PasswordManager.Desktop/bin/
+/PasswordManager.Desktop/installer-output
